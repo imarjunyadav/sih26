@@ -181,7 +181,7 @@ function stitchLocalJourney(origin, destination, pair, trainLeg, departureDate) 
 
 // ── Local candidates ───────────────────────────────────────────────────────────
 
-async function fetchLocalCandidates(pairs, origin, destination, departureDate) {
+async function fetchLocalCandidates(pairs, origin, destination, departureDate, warnings) {
   const seen = new Set();
   const candidates = [];
 
@@ -189,12 +189,17 @@ async function fetchLocalCandidates(pairs, origin, destination, departureDate) {
     pairs.map(p => railRadarProvider.trainsBetween(p.board.code, p.alight.code))
   );
 
+  let railRadarFailed = false;
   for (let i = 0; i < settled.length; i++) {
     const result = settled[i];
     const pair = pairs[i];
 
     if (result.status === 'rejected') {
       console.warn(`[journeyService] RailRadar ${pair.board.code}→${pair.alight.code} failed: ${result.reason?.message?.slice(0, 80)}`);
+      if (!railRadarFailed) {
+        railRadarFailed = true;
+        warnings.push('Local train options may be incomplete — RailRadar service temporarily unavailable');
+      }
       continue;
     }
 
@@ -386,16 +391,17 @@ export async function findJourneys(origin, destination, departureTime) {
   const { pairs, directWalkSecs } = pruneStationPairs(boardCandidates, alightCandidates, origin, destination);
 
   // Phase 2: fetch candidates (Local + Google in parallel)
+  const warnings = [];
   const [localCandidates, googleCandidates] = await Promise.all([
     pairs.length > 0
-      ? fetchLocalCandidates(pairs, origin, destination, depDate)
+      ? fetchLocalCandidates(pairs, origin, destination, depDate, warnings)
       : Promise.resolve([]),
     fetchGoogleCandidates(origin, destination, depDate),
   ]);
 
   // Phase 3: filter and rank
   const all = [...localCandidates, ...googleCandidates];
-  return filterAndRank(all, directWalkSecs);
+  return { journeys: filterAndRank(all, directWalkSecs), warnings };
 }
 
 // Re-export the fmt helper so the test script can use it

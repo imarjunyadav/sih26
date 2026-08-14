@@ -8,7 +8,9 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "test:google": "node src/test-providers.js",
-    "test:railradar": "node src/test-railradar.js"
+    "test:railradar": "node src/test-railradar.js",
+    "test:journey": "node src/test-journey-service.js",
+    "test:api": "node src/test-api-contract.js"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

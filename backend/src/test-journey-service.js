@@ -60,7 +60,8 @@ async function runTest(label, origin, destination) {
   console.log(`  Departure:   now (${new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST)\n`);
 
   try {
-    const journeys = await findJourneys(origin, destination, new Date());
+    const { journeys, warnings } = await findJourneys(origin, destination, new Date());
+    if (warnings.length) console.log(`  Warnings: ${warnings.join('; ')}`);
     if (journeys.length === 0) {
       console.log('  (no journeys returned)');
       return;
