@@ -39,14 +39,20 @@ function apiGet(path) {
 
 // ── response parsers ───────────────────────────────────────────────────────
 
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+function todayISTComponents() {
+  const nowIST = new Date(Date.now() + IST_OFFSET_MS);
+  return { y: nowIST.getUTCFullYear(), mo: nowIST.getUTCMonth(), d: nowIST.getUTCDate() };
+}
+
 function parseTime(str) {
   if (!str) return null;
-  // Handle "HH:MM" or "HH:MM:SS" — create a Date on today's date in IST
-  const [h, m] = str.split(':').map(Number);
+  const parts = str.split(':').map(Number);
+  const [h, m] = parts;
   if (isNaN(h) || isNaN(m)) return null;
-  const d = new Date();
-  d.setHours(h, m, 0, 0);
-  return d;
+  const { y, mo, d } = todayISTComponents();
+  return new Date(Date.UTC(y, mo, d, h, m, 0) - IST_OFFSET_MS);
 }
 
 function stationPoint(code, fallbackName) {
@@ -89,9 +95,12 @@ function normalizeTrainEntry(entry, fromCode, toCode) {
     arrStop?.arrival ?? entry.arrivalTime ?? null
   );
 
-  const durationSecs = (depTime && arrTime)
-    ? Math.max(0, (arrTime - depTime) / 1000)
-    : 0;
+  let durationSecs = 0;
+  if (depTime && arrTime) {
+    let diff = (arrTime - depTime) / 1000;
+    if (diff < 0) diff += 86400; // overnight train
+    durationSecs = diff;
+  }
 
   return makeLeg({
     mode: Mode.LOCAL_TRAIN,
@@ -121,9 +130,20 @@ export const railRadarProvider = {
     const body = await apiGet(`/v1/trains/between/${fromCode}/${toCode}`);
     const trains = body?.data?.trains ?? body?.trains ?? [];
     if (!Array.isArray(trains)) return [];
-    return trains
-      .map(t => normalizeTrainEntry(t, fromCode, toCode))
-      .filter(l => l.from.lat !== null && l.to.lat !== null);
+    const legs = [];
+    for (const t of trains) {
+      const leg = normalizeTrainEntry(t, fromCode, toCode);
+      if (leg.from.lat === null || leg.to.lat === null) {
+        const missing = [
+          leg.from.lat === null ? fromCode : null,
+          leg.to.lat === null ? toCode : null,
+        ].filter(Boolean).join(', ');
+        console.warn(`[railradar] Dropping leg — station code(s) not in catalog: ${missing}`);
+        continue;
+      }
+      legs.push(leg);
+    }
+    return legs;
   },
 
   /**
