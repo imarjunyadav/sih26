@@ -1,15 +1,26 @@
 {
-  "name": "sih2026",
-  "version": "1.0.0",
-  "main": "test_apis.js",
+  "name": "sih26",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mumbai multimodal journey planner (SIH 2026 PS-23)",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "install:all": "npm install && npm install --workspace backend && npm install --workspace frontend",
+    "dev:backend": "npm run dev --workspace backend",
+    "dev:frontend": "npm run dev --workspace frontend",
+    "dev": "npm-run-all --parallel dev:backend dev:frontend",
+    "build": "npm run build --workspace frontend",
+    "start": "npm run start --workspace backend",
+    "test:google": "node test_ganduwali.js",
+    "test:railradar": "node test_railradar.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
     "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5"
   }
 }
