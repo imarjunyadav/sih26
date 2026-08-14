@@ -8,4 +8,6 @@ env_vars.txt
 node_modules/
 .next/
 dist/
+test-results/
+playwright-report/
 
