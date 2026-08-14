@@ -6,7 +6,9 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "node --watch src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test:google": "node src/test-providers.js",
+    "test:railradar": "node src/test-railradar.js"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
