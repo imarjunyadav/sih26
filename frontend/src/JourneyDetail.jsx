@@ -33,7 +33,7 @@ function LegRow({ leg }) {
       </div>
       <div className="leg-body">
         <div className="leg-from-time">
-          <span className="leg-place">{leg.from}</span>
+          <span className="leg-place">{leg.from?.name ?? leg.from}</span>
           <span className="leg-time">{fmtTime(leg.departure)}</span>
         </div>
         <div className="leg-info">
@@ -49,7 +49,7 @@ function LegRow({ leg }) {
           </span>
         </div>
         <div className="leg-to-time">
-          <span className="leg-place">{leg.to}</span>
+          <span className="leg-place">{leg.to?.name ?? leg.to}</span>
           <span className="leg-time">{fmtTime(leg.arrival)}</span>
         </div>
       </div>
@@ -89,7 +89,7 @@ export default function JourneyDetail({ journey, onBack }) {
         {journey.fare != null && (
           <div className="detail-summary-row">
             <span className="detail-label">Fare</span>
-            <span className="detail-value">₹{journey.fare}</span>
+            <span className="detail-value">₹{journey.fare?.amount ?? journey.fare}</span>
           </div>
         )}
       </div>
@@ -106,7 +106,7 @@ export default function JourneyDetail({ journey, onBack }) {
           <div className="leg-body">
             <div className="leg-from-time">
               <span className="leg-place">
-                {journey.legs[journey.legs.length - 1]?.to}
+                {journey.legs[journey.legs.length - 1]?.to?.name ?? journey.legs[journey.legs.length - 1]?.to}
               </span>
               <span className="leg-time">
                 {fmtTime(journey.legs[journey.legs.length - 1]?.arrival)}

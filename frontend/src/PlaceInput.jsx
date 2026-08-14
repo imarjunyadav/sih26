@@ -48,7 +48,7 @@ export default function PlaceInput({ label, value, onSelect, biasCoords }) {
   async function handleSelect(pred) {
     setOpen(false);
     setSuggestions([]);
-    setQuery(pred.mainText || pred.description);
+    setQuery(pred.name || pred.address || '');
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
@@ -106,9 +106,9 @@ export default function PlaceInput({ label, value, onSelect, biasCoords }) {
               className="place-option"
               onMouseDown={() => handleSelect(pred)}
             >
-              <span className="place-option-main">{pred.mainText}</span>
-              {pred.secondaryText && (
-                <span className="place-option-sub">{pred.secondaryText}</span>
+              <span className="place-option-main">{pred.name}</span>
+              {pred.address && (
+                <span className="place-option-sub">{pred.address}</span>
               )}
             </li>
           ))}

@@ -67,7 +67,7 @@ export default function JourneyCard({ journey, onClick }) {
           <span className="journey-walk">{walkMins} min walk</span>
         )}
         {journey.fare != null && (
-          <span className="journey-fare">₹{journey.fare}</span>
+          <span className="journey-fare">₹{journey.fare?.amount ?? journey.fare}</span>
         )}
         {journey.transferCount > 0 && (
           <span className="journey-transfers">{journey.transferCount} change{journey.transferCount > 1 ? 's' : ''}</span>
