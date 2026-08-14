@@ -1,58 +1,134 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer, useRef } from 'react';
+import SearchPanel from './SearchPanel.jsx';
+import ResultsPanel from './ResultsPanel.jsx';
+import JourneyDetail from './JourneyDetail.jsx';
+import { findRoutes } from './api.js';
+
+const INITIAL_STATE = {
+  screen: 'search',
+  origin: null,
+  destination: null,
+  journeys: [],
+  warnings: [],
+  routesError: null,
+  selectedJourney: null,
+};
+
+function reducer(state, action) {
+  switch (action.type) {
+    case 'SEARCH_START':
+      return {
+        ...state,
+        screen: 'results',
+        origin: action.origin,
+        destination: action.destination,
+        journeys: [],
+        warnings: [],
+        routesError: null,
+        selectedJourney: null,
+        loading: true,
+      };
+    case 'SEARCH_OK':
+      return { ...state, loading: false, journeys: action.journeys, warnings: action.warnings };
+    case 'SEARCH_ERR':
+      return { ...state, loading: false, routesError: action.error };
+    case 'SELECT_JOURNEY':
+      return { ...state, screen: 'detail', selectedJourney: action.journey };
+    case 'BACK_TO_SEARCH':
+      return { ...state, screen: 'search' };
+    case 'BACK_TO_RESULTS':
+      return { ...state, screen: 'results', selectedJourney: null };
+    default:
+      return state;
+  }
+}
+
+function pushHistory(screen) {
+  const url = screen === 'search' ? '/' : `/?screen=${screen}`;
+  history.pushState({ screen }, '', url);
+}
 
 export default function App() {
-  const [health, setHealth] = useState(null);
-  const [error, setError] = useState(null);
+  const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
+  const abortRef = useRef(null);
 
+  // Android back-button / browser back
   useEffect(() => {
-    fetch('/api/health')
-      .then((r) => r.json())
-      .then(setHealth)
-      .catch((e) => setError(String(e)));
+    function onPop(e) {
+      const screen = e.state?.screen ?? 'search';
+      if (screen === 'search') dispatch({ type: 'BACK_TO_SEARCH' });
+      else if (screen === 'results') dispatch({ type: 'BACK_TO_RESULTS' });
+    }
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
+
+  async function handleSearch(origin, destination) {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    dispatch({ type: 'SEARCH_START', origin, destination });
+    pushHistory('results');
+
+    try {
+      const data = await findRoutes(origin, destination, ctrl.signal);
+      dispatch({ type: 'SEARCH_OK', journeys: data.journeys ?? [], warnings: data.warnings ?? [] });
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        dispatch({ type: 'SEARCH_ERR', error: err.message || 'Failed to fetch routes' });
+      }
+    }
+  }
+
+  function handleSelectJourney(journey) {
+    dispatch({ type: 'SELECT_JOURNEY', journey });
+    pushHistory('detail');
+  }
+
+  function handleBackToSearch() {
+    dispatch({ type: 'BACK_TO_SEARCH' });
+    pushHistory('search');
+  }
+
+  function handleBackToResults() {
+    dispatch({ type: 'BACK_TO_RESULTS' });
+    pushHistory('results');
+  }
 
   return (
     <div className="app">
       <header className="app-header">
         <h1>Mumbai Multimodal</h1>
-        <p className="tagline">Real Local + Metro + BEST + Walk</p>
+        <p className="tagline">Local · Metro · BEST · Walk</p>
       </header>
 
       <main className="app-main">
-        <section className="card">
-          <h2>Backend status</h2>
-          {error && <p className="error">Error: {error}</p>}
-          {!error && !health && <p className="muted">Checking…</p>}
-          {health && (
-            <ul className="status">
-              <li>
-                <span>Service</span>
-                <strong>{health.service}</strong>
-              </li>
-              <li>
-                <span>Environment</span>
-                <strong>{health.env}</strong>
-              </li>
-              <li>
-                <span>Google Routes</span>
-                <strong className={health.providers.googleRoutes ? 'ok' : 'bad'}>
-                  {health.providers.googleRoutes ? 'ready' : 'missing key'}
-                </strong>
-              </li>
-              <li>
-                <span>RailRadar</span>
-                <strong className={health.providers.railRadar ? 'ok' : 'bad'}>
-                  {health.providers.railRadar ? 'ready' : 'missing key'}
-                </strong>
-              </li>
-            </ul>
-          )}
-        </section>
+        {state.screen === 'search' && (
+          <SearchPanel
+            onSearch={handleSearch}
+            initialOrigin={state.origin}
+            initialDestination={state.destination}
+          />
+        )}
 
-        <section className="card placeholder">
-          <h2>Coming next</h2>
-          <p className="muted">Destination search, route options, journey timeline.</p>
-        </section>
+        {(state.screen === 'results' || state.screen === 'loading') && (
+          <ResultsPanel
+            journeys={state.journeys}
+            warnings={state.warnings}
+            error={state.routesError}
+            loading={state.loading}
+            onSelect={handleSelectJourney}
+            onBack={handleBackToSearch}
+          />
+        )}
+
+        {state.screen === 'detail' && state.selectedJourney && (
+          <JourneyDetail
+            journey={state.selectedJourney}
+            onBack={handleBackToResults}
+          />
+        )}
       </main>
     </div>
   );
