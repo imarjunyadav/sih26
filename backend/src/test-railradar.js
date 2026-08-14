@@ -49,7 +49,7 @@ if (missingCoords.length) {
 // ── 2. STATION_BY_CODE lookup ───────────────────────────────────────────────
 
 hr('STATION_BY_CODE lookup');
-const knownCodes = ['NHU', 'GTK', 'TNA', 'BVI', 'CCG', 'CSTM', 'PANV'];
+const knownCodes = ['NHU', 'GC', 'TNA', 'BVI', 'CCG', 'CSMT', 'PNVL'];
 for (const code of knownCodes) {
   const s = STATION_BY_CODE[code];
   if (s) {
@@ -91,9 +91,9 @@ console.log('\n  ✓ Haversine self-proximity check passed');
 
 // ── 4. Live RailRadar calls (may fail in restricted egress environments) ────
 
-hr('RailRadar live — trainsBetween NHU → GTK');
+hr('RailRadar live — trainsBetween NHU → GC');
 try {
-  const legs = await railRadarProvider.trainsBetween('NHU', 'GTK');
+  const legs = await railRadarProvider.trainsBetween('NHU', 'GC');
   console.log(`  HTTP OK — ${legs.length} train leg(s) returned`);
   if (legs.length > 0) {
     const first = legs[0];

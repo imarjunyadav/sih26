@@ -1,15 +1,22 @@
 import { get } from 'node:https';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import { config } from '../config.js';
 import { Mode, makeLeg } from '../models/journey.js';
 import { STATION_BY_CODE } from '../data/mumbaiLocalStations.js';
 
 const BASE = 'https://api.railradar.in';
 
+// Use proxy when running in the managed cloud environment; skip on Cloud Run.
+const proxyAgent = process.env.HTTPS_PROXY
+  ? new HttpsProxyAgent(process.env.HTTPS_PROXY)
+  : undefined;
+
 function apiGet(path) {
   return new Promise((resolve, reject) => {
     const req = get(
       `${BASE}${path}`,
       {
+        agent: proxyAgent,
         headers: {
           Authorization: `Bearer ${config.railRadarKey}`,
           'User-Agent': 'Mozilla/5.0',
@@ -46,10 +53,10 @@ function todayISTComponents() {
   return { y: nowIST.getUTCFullYear(), mo: nowIST.getUTCMonth(), d: nowIST.getUTCDate() };
 }
 
+// Parse HH:MM string in IST to a UTC Date for today.
 function parseTime(str) {
   if (!str) return null;
-  const parts = str.split(':').map(Number);
-  const [h, m] = parts;
+  const [h, m] = str.split(':').map(Number);
   if (isNaN(h) || isNaN(m)) return null;
   const { y, mo, d } = todayISTComponents();
   return new Date(Date.UTC(y, mo, d, h, m, 0) - IST_OFFSET_MS);
@@ -64,53 +71,39 @@ function stationPoint(code, fallbackName) {
   };
 }
 
-// Normalise one train entry from the /v1/trains/between response into a Leg.
-// RailRadar returns schedules; we produce a LOCAL_TRAIN leg with scheduled
-// departure/arrival. The caller must filter by whether it fits the journey time.
+// Normalise one train entry from /v1/trains/between into a LOCAL_TRAIN Leg.
+// Real API shape: entry.from.departure (HH:MM), entry.to.arrival (HH:MM),
+// entry.duration (minutes), entry.distance (km), entry.train.number/name.
 function normalizeTrainEntry(entry, fromCode, toCode) {
-  // Try both flat and nested shapes the API might return
   const train = entry.train ?? entry;
   const number = String(train.number ?? train.trainNumber ?? train.train_number ?? '');
   const name   = train.name ?? train.trainName ?? null;
 
-  // Stops array contains per-station timing
-  const stops = entry.stops ?? entry.schedule ?? train.stops ?? [];
+  const depTime = parseTime(entry.from?.departure ?? null);
+  const arrTime = parseTime(entry.to?.arrival ?? null);
 
-  // Find the departure from fromCode and arrival at toCode
-  let depStop = null;
-  let arrStop = null;
-  for (const stop of stops) {
-    const sc = stop.station?.code ?? stop.stationCode ?? stop.code ?? '';
-    if (sc === fromCode) depStop = stop;
-    if (sc === toCode)   arrStop = stop;
-  }
-
-  // Fall back to top-level timing fields if stops are absent
-  const depTime = parseTime(
-    depStop?.scheduledDeparture ?? depStop?.departureTime ??
-    depStop?.departure ?? entry.departureTime ?? null
-  );
-  const arrTime = parseTime(
-    arrStop?.scheduledArrival ?? arrStop?.arrivalTime ??
-    arrStop?.arrival ?? entry.arrivalTime ?? null
-  );
-
-  let durationSecs = 0;
-  if (depTime && arrTime) {
+  let durationSecs;
+  if (entry.duration) {
+    durationSecs = entry.duration * 60;
+  } else if (depTime && arrTime) {
     let diff = (arrTime - depTime) / 1000;
     if (diff < 0) diff += 86400; // overnight train
     durationSecs = diff;
+  } else {
+    durationSecs = 0;
   }
+
+  const distanceMeters = entry.distance ? Math.round(entry.distance * 1000) : 0;
 
   return makeLeg({
     mode: Mode.LOCAL_TRAIN,
     provider: 'railradar',
-    from: stationPoint(fromCode, depStop?.station?.name),
-    to:   stationPoint(toCode,   arrStop?.station?.name),
+    from: stationPoint(fromCode, entry.from?.name),
+    to:   stationPoint(toCode,   entry.to?.name),
     departure: depTime,
     arrival:   arrTime,
     durationSecs,
-    distanceMeters: 0,
+    distanceMeters,
     line: number || null,
     agency: 'Central Railway / Western Railway',
     vehicle: 'LOCAL_TRAIN',
@@ -147,52 +140,49 @@ export const railRadarProvider = {
   },
 
   /**
-   * Fetch the live station departure board.
+   * Fetch the live station board.
    * Returns { departures: Leg[], arrivals: Leg[] }.
+   * Real API shape: body.data.trains[] with entry.train, entry.stop, entry.live.
+   * entry.stop.departure / entry.stop.arrival → scheduled HH:MM strings (IST).
+   * entry.live.expectedDepartureTime / expectedArrivalTime → ISO strings.
    */
   async stationBoard(stationCode) {
     const body = await apiGet(`/v1/stations/${stationCode}/live`);
-    const data = body?.data ?? body;
+    const trains = body?.data?.trains ?? [];
+    if (!Array.isArray(trains)) return { departures: [], arrivals: [] };
 
-    function parseBoardEntries(entries, direction) {
-      if (!Array.isArray(entries)) return [];
-      return entries.map(entry => {
-        const train = entry.train ?? entry;
-        const number = String(train.number ?? train.trainNumber ?? '');
-        const name   = train.name ?? null;
-        const otherCode = direction === 'departure'
-          ? (entry.to?.code ?? train.to?.code ?? null)
-          : (entry.from?.code ?? train.from?.code ?? null);
-        const timeStr = direction === 'departure'
-          ? (entry.scheduledDeparture ?? entry.expectedDeparture ?? entry.departureTime ?? null)
-          : (entry.scheduledArrival ?? entry.expectedArrival ?? entry.arrivalTime ?? null);
-        const t = parseTime(timeStr);
-        return makeLeg({
-          mode: Mode.LOCAL_TRAIN,
-          provider: 'railradar',
-          from: direction === 'departure'
-            ? stationPoint(stationCode, null)
-            : stationPoint(otherCode, entry.from?.name ?? null),
-          to: direction === 'departure'
-            ? stationPoint(otherCode, entry.to?.name ?? null)
-            : stationPoint(stationCode, null),
-          departure: direction === 'departure' ? t : null,
-          arrival:   direction === 'arrival'   ? t : null,
-          durationSecs: 0,
-          distanceMeters: 0,
-          line: number || null,
-          agency: 'Central Railway / Western Railway',
-          vehicle: 'LOCAL_TRAIN',
-          headsign: name ?? null,
-          metadata: { trainNumber: number, trainName: name },
-        });
+    const departures = trains.map(entry => {
+      const train  = entry.train ?? entry;
+      const number = String(train.number ?? train.trainNumber ?? '');
+      const name   = train.name ?? null;
+      const destCode = train.destination ?? train.to?.code ?? null;
+
+      // Prefer live expected time; fall back to scheduled stop time.
+      const depTime = entry.live?.expectedDepartureTime
+        ? new Date(entry.live.expectedDepartureTime)
+        : parseTime(entry.stop?.departure ?? null);
+      const arrTime = entry.live?.expectedArrivalTime
+        ? new Date(entry.live.expectedArrivalTime)
+        : parseTime(entry.stop?.arrival ?? null);
+
+      return makeLeg({
+        mode: Mode.LOCAL_TRAIN,
+        provider: 'railradar',
+        from: stationPoint(stationCode, null),
+        to:   stationPoint(destCode, train.destinationName ?? null),
+        departure: depTime,
+        arrival:   arrTime,
+        durationSecs: 0,
+        distanceMeters: 0,
+        line: number || null,
+        agency: 'Central Railway / Western Railway',
+        vehicle: 'LOCAL_TRAIN',
+        headsign: name ?? null,
+        metadata: { trainNumber: number, trainName: name },
       });
-    }
+    });
 
-    return {
-      departures: parseBoardEntries(data?.departures, 'departure'),
-      arrivals:   parseBoardEntries(data?.arrivals,   'arrival'),
-    };
+    return { departures, arrivals: [] };
   },
 
   /**
