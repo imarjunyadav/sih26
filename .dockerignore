@@ -14,9 +14,8 @@ backend/node_modules/
 # Frontend build output (rebuilt inside Docker)
 frontend/dist/
 
-# Cloud Run file-content deploy fallback — not needed in Docker image
-.deploy/
-backend/setup.mjs
+# CI / CD
+.github/
 
 # Dev / test artefacts
 e2e/
