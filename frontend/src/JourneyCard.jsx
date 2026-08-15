@@ -5,6 +5,8 @@ const MODE_ICONS = {
   METRO: '🚇',
   BUS: '🚌',
   WALK: '🚶',
+  CAR: '🚗',
+  BIKE: '🚲',
   FERRY: '⛴',
   TAXI: '🚕',
   AUTO: '🛺',
@@ -16,6 +18,8 @@ function modeCssClass(mode) {
     METRO: 'metro',
     BUS: 'bus',
     WALK: 'walk',
+    CAR: 'car',
+    BIKE: 'bike',
     FERRY: 'walk',
     TAXI: 'car',
     AUTO: 'car',
@@ -23,18 +27,10 @@ function modeCssClass(mode) {
   return `mode-${map[mode] ?? 'walk'}`;
 }
 
-function buildSummary(legs) {
-  return legs
-    .filter((l) => l.mode !== 'WALK')
-    .map((l) => (l.line ? `${MODE_ICONS[l.mode] ?? '•'} ${l.line}` : MODE_ICONS[l.mode] ?? l.mode));
-}
-
 export default function JourneyCard({ journey, onClick }) {
-  const departs = journey.legs[0]?.departure;
-  const arrives = journey.legs[journey.legs.length - 1]?.arrival;
+  const departs = journey.departure;
+  const arrives = journey.arrival;
   const eta = leavesIn(departs);
-  const transitLegs = journey.legs.filter((l) => l.mode !== 'WALK');
-  const summary = buildSummary(journey.legs);
   const walkMins = Math.round((journey.totalWalkSecs ?? 0) / 60);
 
   return (
@@ -45,9 +41,7 @@ export default function JourneyCard({ journey, onClick }) {
           <span className="journey-arrow">→</span>
           <span className="journey-arrive">{fmtTime(arrives)}</span>
         </div>
-        <div className="journey-duration">{fmtDuration(
-          journey.legs.reduce((s, l) => s + (l.durationSecs ?? 0), 0)
-        )}</div>
+        <div className="journey-duration">{fmtDuration(journey.durationSecs)}</div>
       </div>
 
       <div className="journey-card-mid">

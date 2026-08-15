@@ -61,7 +61,7 @@ for (let i = 0; i < journeys.length; i++) {
   assert(typeof s.id           === 'string',  `[${i}] id is string`);
   assert(typeof s.category     === 'string',  `[${i}] category is string`);
   assert(typeof s.durationSecs === 'number',  `[${i}] durationSecs is number`);
-  assert(typeof s.walkSecs     === 'number',  `[${i}] walkSecs is number`);
+  assert(typeof s.totalWalkSecs === 'number',  `[${i}] totalWalkSecs is number`);
   assert(typeof s.waitSecs     === 'number',  `[${i}] waitSecs is number`);
   assert(typeof s.transferCount === 'number', `[${i}] transferCount is number`);
   assert(Array.isArray(s.legs),               `[${i}] legs is array`);
@@ -83,7 +83,7 @@ for (let i = 0; i < journeys.length; i++) {
   assertAbsent(s, 'alightCode');
   assertAbsent(s, '_costBreakdown');
   assertAbsent(s, 'totalDurationSecs');
-  assertAbsent(s, 'totalWalkSecs');
+  assertAbsent(s, 'walkSecs');
   assertAbsent(s, 'totalDistanceMeters');
 
   // Leg checks
@@ -103,7 +103,7 @@ for (let i = 0; i < journeys.length; i++) {
   const modeStr = s.legs.map(l => l.mode).join(' → ');
   const depStr  = s.departure ? new Date(s.departure).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true }) : '?';
   const arrStr  = s.arrival   ? new Date(s.arrival).toLocaleTimeString('en-IN',   { timeZone: 'Asia/Kolkata', hour12: true }) : '?';
-  console.log(`  [${i + 1}] ${s.category.padEnd(12)} ${Math.round(s.durationSecs/60)}m  wait=${s.waitSecs/60|0}m  walk=${Math.round(s.walkSecs/60)}m  transfers=${s.transferCount}  ${depStr}→${arrStr}`);
+  console.log(`  [${i + 1}] ${s.category.padEnd(12)} ${Math.round(s.durationSecs/60)}m  wait=${s.waitSecs/60|0}m  walk=${Math.round(s.totalWalkSecs/60)}m  transfers=${s.transferCount}  ${depStr}→${arrStr}`);
   console.log(`       legs: ${modeStr}`);
   if (s.legs.some(l => l.isEstimated)) console.log('       (walk legs are estimated)');
 }

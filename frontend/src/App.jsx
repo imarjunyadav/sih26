@@ -12,6 +12,7 @@ const INITIAL_STATE = {
   warnings: [],
   routesError: null,
   selectedJourney: null,
+  requestedAt: null,
 };
 
 function reducer(state, action) {
@@ -29,7 +30,7 @@ function reducer(state, action) {
         loading: true,
       };
     case 'SEARCH_OK':
-      return { ...state, loading: false, journeys: action.journeys, warnings: action.warnings };
+      return { ...state, loading: false, journeys: action.journeys, warnings: action.warnings, requestedAt: action.requestedAt };
     case 'SEARCH_ERR':
       return { ...state, loading: false, routesError: action.error };
     case 'SELECT_JOURNEY':
@@ -63,7 +64,7 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  async function handleSearch(origin, destination) {
+  async function handleSearch(origin, destination, departureTime) {
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -72,8 +73,8 @@ export default function App() {
     pushHistory('results');
 
     try {
-      const data = await findRoutes(origin, destination, ctrl.signal);
-      dispatch({ type: 'SEARCH_OK', journeys: data.journeys ?? [], warnings: data.warnings ?? [] });
+      const data = await findRoutes(origin, destination, departureTime, ctrl.signal);
+      dispatch({ type: 'SEARCH_OK', journeys: data.journeys ?? [], warnings: data.warnings ?? [], requestedAt: data.requestedAt ?? null });
     } catch (err) {
       if (err.name !== 'AbortError') {
         dispatch({ type: 'SEARCH_ERR', error: err.message || 'Failed to fetch routes' });
@@ -126,6 +127,7 @@ export default function App() {
         {state.screen === 'detail' && state.selectedJourney && (
           <JourneyDetail
             journey={state.selectedJourney}
+            requestedAt={state.requestedAt}
             onBack={handleBackToResults}
           />
         )}

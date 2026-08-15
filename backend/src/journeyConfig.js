@@ -42,6 +42,6 @@ export const JOURNEY_CONFIG = Object.freeze({
   NEAR_DUP_EFFECTIVE_COST_DIFF_SECS: 3 * 60,   // 3 min effective-cost proximity
 
   // ── Output ──────────────────────────────────────────────────────────────────
-  MAX_RESULTS: 5,
+  MAX_RESULTS: 8,
 
 });

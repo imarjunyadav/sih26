@@ -54,7 +54,7 @@ export function serializeJourney(j) {
     departure:     isoOrNull(j.departure),
     arrival:       isoOrNull(j.arrival),
     durationSecs:  j.totalDurationSecs,
-    walkSecs:      j.totalWalkSecs,
+    totalWalkSecs: j.totalWalkSecs,
     waitSecs:      j.waitSecs ?? 0,
     transferCount: j.transferCount,
     fare:          j.fare ?? null,

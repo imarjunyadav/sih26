@@ -21,7 +21,7 @@ export async function getPlaceDetails(placeId, signal) {
   return res.json(); // { placeId, name, address, lat, lng }
 }
 
-export async function findRoutes(origin, destination, signal) {
+export async function findRoutes(origin, destination, departureTime, signal) {
   const res = await fetch('/api/routes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -29,7 +29,7 @@ export async function findRoutes(origin, destination, signal) {
     body: JSON.stringify({
       origin:      { lat: origin.lat,      lng: origin.lng,      name: origin.name },
       destination: { lat: destination.lat, lng: destination.lng, name: destination.name },
-      departureTime: new Date().toISOString(),
+      departureTime: departureTime || new Date().toISOString(),
     }),
   });
   if (!res.ok) {

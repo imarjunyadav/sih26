@@ -92,14 +92,20 @@ const TRANSIT_FIELDS = [
 
 // ── normalisers ────────────────────────────────────────────────────────────────
 
-function normalizeSimple(route, category, from, to) {
+function normalizeSimple(route, category, from, to, departureTime) {
   const modeMap = { CAR: Mode.CAR, BIKE: Mode.BIKE, WALK: Mode.WALK };
+  const durationSecs = parseSecs(route.duration);
+  const depDate = departureTime instanceof Date ? departureTime : (departureTime ? new Date(departureTime) : null);
+  const arrDate = depDate ? new Date(depDate.getTime() + durationSecs * 1000) : null;
+
   const leg = makeLeg({
     mode: modeMap[category],
     provider: 'google',
     from: { name: from.name || 'Origin', lat: from.lat, lng: from.lng },
     to: { name: to.name || 'Destination', lat: to.lat, lng: to.lng },
-    durationSecs: parseSecs(route.duration),
+    departure: depDate,
+    arrival: arrDate,
+    durationSecs,
     distanceMeters: route.distanceMeters || 0,
     polyline: route.polyline?.encodedPolyline || null,
   });
@@ -124,7 +130,39 @@ function mergeWalkLegs(legs) {
   return merged.filter(l => l.mode !== Mode.WALK || l.durationSecs > 0 || l.distanceMeters > 10);
 }
 
-function normalizeTransit(route) {
+function fillWalkContext(legs, originName, destinationName) {
+  for (let i = 0; i < legs.length; i++) {
+    if (legs[i].mode !== Mode.WALK) continue;
+
+    const prev = legs[i - 1];
+    const next = legs[i + 1];
+
+    const fromName = prev ? (prev.to?.name ?? 'Walk') : (originName ?? 'Origin');
+    const toName = next ? (next.from?.name ?? 'Walk') : (destinationName ?? 'Destination');
+
+    let { departure, arrival } = legs[i];
+
+    if (!departure && prev?.arrival) {
+      departure = new Date(prev.arrival.getTime());
+    }
+    if (!departure && next?.departure) {
+      departure = new Date(next.departure.getTime() - legs[i].durationSecs * 1000);
+    }
+    if (departure && !arrival) {
+      arrival = new Date(departure.getTime() + legs[i].durationSecs * 1000);
+    }
+
+    legs[i] = {
+      ...legs[i],
+      from: { ...legs[i].from, name: fromName },
+      to: { ...legs[i].to, name: toName },
+      departure: departure ?? legs[i].departure,
+      arrival: arrival ?? legs[i].arrival,
+    };
+  }
+}
+
+function normalizeTransit(route, origin, destination) {
   const steps = route.legs?.[0]?.steps || [];
   const legs = [];
 
@@ -182,6 +220,8 @@ function normalizeTransit(route) {
   const clean = mergeWalkLegs(legs);
   if (clean.length === 0) return null;
 
+  fillWalkContext(clean, origin?.name, destination?.name);
+
   const transitModes = clean.filter(l => l.mode !== Mode.WALK).map(l => l.mode);
   let category = Category.MULTIMODAL;
   if (transitModes.length === 0) category = Category.WALK;
@@ -195,12 +235,23 @@ function normalizeTransit(route) {
       }
     : null;
 
-  return makeJourney({ category, legs: clean, fare });
+  const journey = makeJourney({ category, legs: clean, fare });
+
+  const firstDep = clean[0]?.departure;
+  const lastArr = clean[clean.length - 1]?.arrival;
+  if (firstDep && lastArr) {
+    const elapsedSecs = Math.round((lastArr - firstDep) / 1000);
+    const movementSecs = journey.totalDurationSecs;
+    journey.totalDurationSecs = elapsedSecs;
+    journey.waitSecs = Math.max(0, elapsedSecs - movementSecs);
+  }
+
+  return journey;
 }
 
 // ── provider ───────────────────────────────────────────────────────────────────
 
-async function routeSimple(travelMode, category, from, to) {
+async function routeSimple(travelMode, category, from, to, departureTime) {
   const body = {
     origin: latLng(from),
     destination: latLng(to),
@@ -212,20 +263,20 @@ async function routeSimple(travelMode, category, from, to) {
   const data = await post(body, SIMPLE_FIELDS);
   const route = data.routes?.[0];
   if (!route) return [];
-  return [normalizeSimple(route, category, from, to)];
+  return [normalizeSimple(route, category, from, to, departureTime)];
 }
 
 export const googleRoutesProvider = {
-  routeCar(from, to) {
-    return routeSimple('DRIVE', Category.CAR, from, to);
+  routeCar(from, to, opts = {}) {
+    return routeSimple('DRIVE', Category.CAR, from, to, opts.departureTime);
   },
 
-  routeBike(from, to) {
-    return routeSimple('TWO_WHEELER', Category.BIKE, from, to);
+  routeBike(from, to, opts = {}) {
+    return routeSimple('TWO_WHEELER', Category.BIKE, from, to, opts.departureTime);
   },
 
-  routeWalk(from, to) {
-    return routeSimple('WALK', Category.WALK, from, to);
+  routeWalk(from, to, opts = {}) {
+    return routeSimple('WALK', Category.WALK, from, to, opts.departureTime);
   },
 
   async routeTransit(from, to, opts = {}) {
@@ -246,6 +297,6 @@ export const googleRoutesProvider = {
     }
 
     const data = await post(body, TRANSIT_FIELDS);
-    return (data.routes || []).map(normalizeTransit).filter(Boolean);
+    return (data.routes || []).map(r => normalizeTransit(r, from, to)).filter(Boolean);
   },
 };

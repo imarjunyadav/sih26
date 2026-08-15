@@ -224,17 +224,17 @@ async function fetchLocalCandidates(pairs, origin, destination, departureDate, w
 // ── Google candidates ──────────────────────────────────────────────────────────
 
 async function fetchGoogleCandidates(origin, destination, departureDate) {
-  const [transitRes, walkRes, driveRes] = await Promise.allSettled([
+  const [transitRes, walkRes, driveRes, bikeRes] = await Promise.allSettled([
     googleRoutesProvider.routeTransit(origin, destination, { departureTime: departureDate }),
-    googleRoutesProvider.routeWalk(origin, destination),
-    googleRoutesProvider.routeCar(origin, destination),
+    googleRoutesProvider.routeWalk(origin, destination, { departureTime: departureDate }),
+    googleRoutesProvider.routeCar(origin, destination, { departureTime: departureDate }),
+    googleRoutesProvider.routeBike(origin, destination, { departureTime: departureDate }),
   ]);
 
   const candidates = [];
 
   if (transitRes.status === 'fulfilled') {
     for (const j of transitRes.value) {
-      // Drop any Google journey containing a Local Train leg — RailRadar is authoritative
       if (j.legs.some(l => l.mode === Mode.LOCAL_TRAIN)) {
         console.log('  [filter] DROP Google journey with LOCAL_TRAIN leg (using RailRadar)');
         continue;
@@ -253,6 +253,10 @@ async function fetchGoogleCandidates(origin, destination, departureDate) {
     candidates.push(...driveRes.value.map(j => ({ ...j, source: 'google-drive' })));
   }
 
+  if (bikeRes.status === 'fulfilled') {
+    candidates.push(...bikeRes.value.map(j => ({ ...j, source: 'google-bike' })));
+  }
+
   return candidates;
 }
 
@@ -260,6 +264,17 @@ async function fetchGoogleCandidates(origin, destination, departureDate) {
 
 function isLocalJourney(j) {
   return j.legs.some(l => l.mode === Mode.LOCAL_TRAIN);
+}
+
+function diversityKey(journey) {
+  const modes = new Set(journey.legs.filter(l => l.mode !== Mode.WALK).map(l => l.mode));
+  if (modes.has(Mode.LOCAL_TRAIN)) return 'LOCAL_TRAIN';
+  if (modes.has(Mode.METRO)) return 'METRO';
+  if (modes.size > 1) return 'MULTIMODAL';
+  if (modes.has(Mode.BUS)) return 'BUS';
+  if (journey.category === Category.CAR) return 'CAR';
+  if (journey.category === Category.BIKE) return 'BIKE';
+  return 'WALK';
 }
 
 function filterAndRank(all, directWalkSecs) {
@@ -321,23 +336,20 @@ function filterAndRank(all, directWalkSecs) {
 
   const f5 = f4.filter(j => {
     if (j.effectiveCost <= bestCost * cfg.OUTLIER_MULTIPLIER) return true;
-    if (modeRep[j.category] === 1) return true;   // sole representative — keep
+    if (modeRep[j.category] === 1) return true;
     console.log(`  [filter:DROP] outlier effectiveCost=${fmt(j.effectiveCost)} > ${cfg.OUTLIER_MULTIPLIER}× best ${fmt(bestCost)}`);
     return false;
   });
 
   // ── Soft filter 6: per-pair cap + near-duplicate suppression ─────────────────
-  const pairKept = {};  // pairKey → kept journeys array
-  const result = [];
+  const pairKept = {};
+  const deduped = [];
 
   for (const j of f5) {
-    if (result.length >= cfg.MAX_RESULTS) break;
-
     if (isLocalJourney(j)) {
       const pairKey = `${j.boardCode}:${j.alightCode}`;
       const kept = pairKept[pairKey] ?? [];
 
-      // Near-duplicate: both departure AND effective cost too close to an already-kept journey
       const isNearDup = kept.some(prev => {
         const depDiff  = Math.abs((j.departure?.getTime() ?? 0) - (prev.departure?.getTime() ?? 0)) / 1000;
         const costDiff = Math.abs(j.effectiveCost - prev.effectiveCost);
@@ -358,9 +370,29 @@ function filterAndRank(all, directWalkSecs) {
       pairKept[pairKey] = [...kept, j];
     }
 
-    result.push(j);
+    deduped.push(j);
   }
 
+  // ── Diversity-aware selection ────────────────────────────────────────────────
+  // Pass 1: one best representative from each diversity group
+  const groupBest = {};
+  for (const j of deduped) {
+    const key = diversityKey(j);
+    if (!groupBest[key]) groupBest[key] = j;
+  }
+
+  const result = Object.values(groupBest);
+  const inResult = new Set(result.map(j => j.id));
+
+  // Pass 2: fill remaining slots from ranked pool
+  for (const j of deduped) {
+    if (result.length >= cfg.MAX_RESULTS) break;
+    if (inResult.has(j.id)) continue;
+    result.push(j);
+    inResult.add(j.id);
+  }
+
+  result.sort((a, b) => a.effectiveCost - b.effectiveCost);
   return result;
 }
 
