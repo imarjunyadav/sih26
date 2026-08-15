@@ -23,7 +23,8 @@ jobs:
       - id: auth
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: projects/122591058801/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: github-actions@project-ed1c5c4b-97ab-4bba-98e.iam.gserviceaccount.com
 
       - uses: google-github-actions/setup-gcloud@v2
 
