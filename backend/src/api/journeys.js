@@ -47,13 +47,20 @@ function serializeLeg(leg) {
   };
 }
 
-export function serializeJourney(j) {
+export function serializeJourney(j, requestedAt) {
+  let durationSecs = j.totalDurationSecs;
+  if (requestedAt && j.arrival) {
+    const arrMs = j.arrival instanceof Date ? j.arrival.getTime() : new Date(j.arrival).getTime();
+    const userCentric = Math.round((arrMs - requestedAt.getTime()) / 1000);
+    if (userCentric > 0) durationSecs = Math.max(durationSecs, userCentric);
+  }
+
   return {
     id:            j.id,
     category:      j.category,
     departure:     isoOrNull(j.departure),
     arrival:       isoOrNull(j.arrival),
-    durationSecs:  j.totalDurationSecs,
+    durationSecs,
     totalWalkSecs: j.totalWalkSecs,
     waitSecs:      j.waitSecs ?? 0,
     transferCount: j.transferCount,
@@ -101,7 +108,7 @@ journeysRouter.post('/routes', async (req, res, next) => {
     );
 
     res.json({
-      journeys: journeys.map(serializeJourney),
+      journeys: journeys.map(j => serializeJourney(j, depDate)),
       warnings,
       requestedAt: depDate.toISOString(),
     });
