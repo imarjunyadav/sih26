@@ -1,5 +1,5 @@
 # ── Stage 1: build ─────────────────────────────────────────────────────────────
-FROM node:22-alpine AS build
+FROM node:22-slim AS build
 WORKDIR /build
 
 # Package manifests first — this layer is cached until lockfile changes
@@ -16,7 +16,7 @@ COPY backend/ ./backend/
 RUN npm run build --workspace frontend
 
 # ── Stage 2: runtime ───────────────────────────────────────────────────────────
-FROM node:22-alpine AS runtime
+FROM node:22-slim AS runtime
 WORKDIR /workspace
 
 # Install backend production dependencies only.
