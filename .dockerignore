@@ -1,0 +1,29 @@
+# Git history
+.git/
+
+# Secrets — never bake into the image
+.env
+.env.*
+!.env.example
+
+# Local installed modules (rebuilt inside Docker)
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Frontend build output (rebuilt inside Docker)
+frontend/dist/
+
+# Cloud Run file-content deploy fallback — not needed in Docker image
+.deploy/
+backend/setup.mjs
+
+# Dev / test artefacts
+e2e/
+test-results/
+playwright-report/
+playwright.config.js
+test_*.js
+
+# Editor / tooling
+.claude/
