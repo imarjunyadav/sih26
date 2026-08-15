@@ -1,0 +1,44 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGION: asia-south1
+  SERVICE: citylink
+  REGISTRY: asia-south1-docker.pkg.dev
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/122591058801/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: github-actions@project-ed1c5c4b-97ab-4bba-98e.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Build and push
+        run: |
+          IMAGE=${{ env.REGISTRY }}/${{ steps.auth.outputs.project_id }}/citylink/app
+          docker build -t ${IMAGE}:${{ github.sha }} -t ${IMAGE}:latest .
+          docker push ${IMAGE} --all-tags
+
+      - name: Deploy to Cloud Run
+        run: |
+          IMAGE=${{ env.REGISTRY }}/${{ steps.auth.outputs.project_id }}/citylink/app
+          gcloud run deploy ${{ env.SERVICE }} \
+            --image=${IMAGE}:${{ github.sha }} \
+            --region=${{ env.REGION }}
