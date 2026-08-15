@@ -1,4 +1,5 @@
 import { fmtTime, fmtDuration, fmtDistance, modeLabel } from './format.js';
+import JourneyMap from './JourneyMap.jsx';
 
 const MODE_ICONS = {
   LOCAL_TRAIN: '🚆',
@@ -161,9 +162,7 @@ export default function JourneyDetail({ journey, requestedAt, onBack }) {
         </div>
       </div>
 
-      <div className="map-placeholder card">
-        <p className="muted">Map view coming in Step 7</p>
-      </div>
+      <JourneyMap journey={journey} />
     </div>
   );
 }

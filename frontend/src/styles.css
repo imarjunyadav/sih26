@@ -586,9 +586,34 @@ body {
   border-radius: 10px;
 }
 
-.map-placeholder {
-  min-height: 120px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* ── Journey Map ── */
+.journey-map {
+  height: 240px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  isolation: isolate;
 }
+
+.gps-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(79, 140, 255, 0.3);
+  border: 2px solid #4f8cff;
+  box-shadow: 0 0 0 0 rgba(79, 140, 255, 0.4);
+  animation: gps-pulse 2s infinite;
+}
+
+@keyframes gps-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(79, 140, 255, 0.4); }
+  70%  { box-shadow: 0 0 0 10px rgba(79, 140, 255, 0); }
+  100% { box-shadow: 0 0 0 0   rgba(79, 140, 255, 0); }
+}
+
+.journey-map .leaflet-control-attribution {
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #93a0c2;
+  border-radius: 4px 0 0 0;
+}
+.journey-map .leaflet-control-attribution a { color: #93a0c2; }
