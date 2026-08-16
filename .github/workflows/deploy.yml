@@ -37,8 +37,37 @@ jobs:
           docker push ${IMAGE} --all-tags
 
       - name: Deploy to Cloud Run
+        # ONDC public-key values (non-sensitive) are stored as GitHub Actions Variables
+        # (Settings → Secrets and variables → Variables) and referenced via vars.*
+        # Private keys are never in this file; they are pulled from Secret Manager at
+        # Cloud Run runtime by the service account (122591058801-compute@developer.gserviceaccount.com).
+        env:
+          ONDC_UNIQUE_KEY_ID:            ${{ vars.ONDC_UNIQUE_KEY_ID }}
+          ONDC_SIGNING_PUBLIC_KEY:       ${{ vars.ONDC_SIGNING_PUBLIC_KEY }}
+          ONDC_ENCRYPTION_PUBLIC_KEY:    ${{ vars.ONDC_ENCRYPTION_PUBLIC_KEY }}
+          ONDC_SITE_VERIFICATION_SIGNED: ${{ vars.ONDC_SITE_VERIFICATION_SIGNED }}
         run: |
           IMAGE=${{ env.REGISTRY }}/${{ steps.auth.outputs.project_id }}/citylink/app
+
+          # Build --update-env-vars value in parts to avoid shell-quoting issues
+          # with base64 '=' padding and URL ':' characters inside a quoted string.
+          # --update-env-vars adds/updates only these vars; existing Cloud Run
+          # env vars (Google Maps, RailRadar, etc.) are left untouched.
+          ENV_VARS="ONDC_SUBSCRIBER_ID=citylink-122591058801.asia-south1.run.app"
+          ENV_VARS="${ENV_VARS},ONDC_SUBSCRIBER_URL=https://citylink-122591058801.asia-south1.run.app"
+          ENV_VARS="${ENV_VARS},ONDC_UNIQUE_KEY_ID=${ONDC_UNIQUE_KEY_ID}"
+          ENV_VARS="${ENV_VARS},ONDC_SIGNING_PUBLIC_KEY=${ONDC_SIGNING_PUBLIC_KEY}"
+          ENV_VARS="${ENV_VARS},ONDC_ENCRYPTION_PUBLIC_KEY=${ONDC_ENCRYPTION_PUBLIC_KEY}"
+          ENV_VARS="${ENV_VARS},ONDC_SITE_VERIFICATION_SIGNED=${ONDC_SITE_VERIFICATION_SIGNED}"
+          ENV_VARS="${ENV_VARS},ONDC_REGISTRY_URL=https://preprod.registry.ondc.org"
+          ENV_VARS="${ENV_VARS},ONDC_GATEWAY_URL=https://preprod.gateway.ondc.org"
+          ENV_VARS="${ENV_VARS},ONDC_ENV=uat"
+          ENV_VARS="${ENV_VARS},ONDC_BUYER_FINDER_FEES_PCT=1"
+          ENV_VARS="${ENV_VARS},ONDC_COURT_JURISDICTION=Mumbai"
+          ENV_VARS="${ENV_VARS},ONDC_MOCK_PAYMENT=false"
+
           gcloud run deploy ${{ env.SERVICE }} \
             --image=${IMAGE}:${{ github.sha }} \
-            --region=${{ env.REGION }}
+            --region=${{ env.REGION }} \
+            --update-secrets="ONDC_SIGNING_PRIVATE_KEY=ondc-signing-private-key:latest,ONDC_ENCRYPTION_PRIVATE_KEY=ondc-encryption-private-key:latest" \
+            --update-env-vars="${ENV_VARS}"
