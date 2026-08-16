@@ -4,10 +4,14 @@ import PlaceInput from './PlaceInput.jsx';
 const RECENT_KEY = 'citylink_recent_v1';
 const MAX_RECENT = 5;
 
-function toLocalDatetimeStr(date) {
-  const off = date.getTimezoneOffset();
-  const local = new Date(date.getTime() - off * 60000);
-  return local.toISOString().slice(0, 16);
+// Always display and interpret times in IST (Asia/Kolkata, UTC+5:30).
+function toISTDatetimeStr(date) {
+  return date.toLocaleString('sv-SE', { timeZone: 'Asia/Kolkata' }).replace(' ', 'T').slice(0, 16);
+}
+
+function parseISTDatetime(str) {
+  // str is "YYYY-MM-DDTHH:MM" interpreted as IST
+  return new Date(`${str}:00+05:30`);
 }
 
 function loadRecent() {
@@ -30,12 +34,12 @@ export default function SearchPanel({ onSearch, initialOrigin, initialDestinatio
   const [gpsError, setGpsError] = useState(null);
   const [gpsLoading, setGpsLoading] = useState(false);
   const [isNow, setIsNow] = useState(true);
-  const [depTime, setDepTime] = useState(toLocalDatetimeStr(new Date()));
+  const [depTime, setDepTime] = useState(() => toISTDatetimeStr(new Date()));
   const [recent, setRecent] = useState(loadRecent);
 
   useEffect(() => {
     if (!isNow) return;
-    const id = setInterval(() => setDepTime(toLocalDatetimeStr(new Date())), 30000);
+    const id = setInterval(() => setDepTime(toISTDatetimeStr(new Date())), 30000);
     return () => clearInterval(id);
   }, [isNow]);
 
@@ -68,7 +72,7 @@ export default function SearchPanel({ onSearch, initialOrigin, initialDestinatio
   function handleSubmit(e) {
     e.preventDefault();
     if (!origin || !destination) return;
-    const departureTime = isNow ? new Date().toISOString() : new Date(depTime).toISOString();
+    const departureTime = isNow ? new Date().toISOString() : parseISTDatetime(depTime).toISOString();
     saveRecent(origin, destination);
     setRecent(loadRecent());
     onSearch(origin, destination, departureTime);
@@ -135,9 +139,9 @@ export default function SearchPanel({ onSearch, initialOrigin, initialDestinatio
         <button
           type="button"
           className={`time-pill${isNow ? ' time-pill--active' : ''}`}
-          onClick={() => { setIsNow(true); setDepTime(toLocalDatetimeStr(new Date())); }}
+          onClick={() => { setIsNow(true); setDepTime(toISTDatetimeStr(new Date())); }}
         >
-          🕐 Now
+          Now
         </button>
         <input
           type="datetime-local"
@@ -150,7 +154,7 @@ export default function SearchPanel({ onSearch, initialOrigin, initialDestinatio
           <button
             type="button"
             className="time-pill"
-            onClick={() => { setIsNow(true); setDepTime(toLocalDatetimeStr(new Date())); }}
+            onClick={() => { setIsNow(true); setDepTime(toISTDatetimeStr(new Date())); }}
             aria-label="Reset to now"
           >
             ✕
@@ -170,7 +174,6 @@ export default function SearchPanel({ onSearch, initialOrigin, initialDestinatio
             {recent.map((r, i) => (
               <li key={i}>
                 <button type="button" className="recent-item" onClick={() => applyRecent(r)}>
-                  <span className="recent-icon">🕐</span>
                   <span className="recent-text">{r.origin?.name} → {r.destination?.name}</span>
                   <span className="recent-arrow">›</span>
                 </button>

@@ -1,16 +1,4 @@
-import { fmtTime, fmtDuration, leavesIn } from './format.js';
-
-const MODE_ICONS = {
-  LOCAL_TRAIN: '🚆',
-  METRO: '🚇',
-  BUS: '🚌',
-  WALK: '🚶',
-  CAR: '🚗',
-  BIKE: '🚲',
-  FERRY: '⛴',
-  TAXI: '🚕',
-  AUTO: '🛺',
-};
+import { fmtTime, fmtDuration, leavesIn, modeLabel } from './format.js';
 
 const MODE_COLORS = {
   LOCAL_TRAIN: '#2563eb',
@@ -81,7 +69,7 @@ export default function JourneyCard({ journey, onClick }) {
               : (leg.line || null);
             return (
               <span key={i} className={`leg-chip ${modeCssClass(leg.mode)}`}>
-                {MODE_ICONS[leg.mode] ?? leg.mode}
+                {modeLabel(leg.mode)}
                 {chipLabel && <span className="leg-line"> {chipLabel}</span>}
               </span>
             );
