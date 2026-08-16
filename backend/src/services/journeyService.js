@@ -67,17 +67,14 @@ function computeEffectiveCost(journey, explicitWaitSecs) {
     .filter(l => l.mode === Mode.WALK)
     .reduce((s, l) => s + (l.durationSecs || 0), 0);
 
-  // Pure walk or unknown mode
   if (journey.category === Category.WALK) {
     return { cost: Math.round(walkSecs * cfg.WALK_MULTIPLIER), walkSecs, transitSecs: 0, waitSecs: 0 };
   }
 
-  // Driving and cycling — comfortable, no effort premium
   if (journey.category === Category.CAR || journey.category === Category.BIKE) {
     return { cost: Math.round(journey.totalDurationSecs * cfg.TRANSIT_MULTIPLIER), walkSecs: 0, transitSecs: journey.totalDurationSecs, waitSecs: 0 };
   }
 
-  // MULTIMODAL / BUS — decompose into transit + walk + wait
   const transitSecs = journey.legs
     .filter(l => l.mode !== Mode.WALK)
     .reduce((s, l) => s + (l.durationSecs || 0), 0);
@@ -148,7 +145,6 @@ function stitchLocalJourney(origin, destination, pair, trainLeg, departureDate) 
     : 0;
 
   // Leg 3: walk from alighting station to destination
-  // Starts when the train arrives (fall back to departure + duration if no arrival)
   const trainArrival = trainLeg.arrival
     ?? new Date(trainLeg.departure.getTime() + trainLeg.durationSecs * 1000);
   const leg3 = buildWalkLeg(
@@ -158,14 +154,13 @@ function stitchLocalJourney(origin, destination, pair, trainLeg, departureDate) 
   );
 
   const base = makeJourney({
-    category: Category.MULTIMODAL,
+    category: Category.LOCAL_TRAIN,
     legs: [leg1, trainLeg, leg3],
   });
 
-  // Override totalDurationSecs to include the platform wait gap (not a leg, not counted by makeJourney)
+  // Override totalDurationSecs to include the platform wait gap
   const totalDurationSecs = leg1.durationSecs + Math.round(waitSecs) + trainLeg.durationSecs + leg3.durationSecs;
 
-  // Unique ID that includes departure time to distinguish trains on the same pair
   const uniqueId = `local:${board.code}:${alight.code}:${trainLeg.line}:${(trainLeg.departure?.getTime() ?? 0).toString(36)}`;
 
   return {
@@ -256,140 +251,54 @@ async function fetchGoogleCandidates(origin, destination, departureDate) {
   return candidates;
 }
 
-// ── Filter and rank ────────────────────────────────────────────────────────────
+// ── Per-category selection ─────────────────────────────────────────────────────
 
-function isLocalJourney(j) {
-  return j.legs.some(l => l.mode === Mode.LOCAL_TRAIN);
-}
+// Canonical display order for result categories
+const CATEGORY_ORDER = [
+  Category.LOCAL_TRAIN,
+  Category.METRO,
+  Category.BUS,
+  Category.MULTIMODAL,
+  Category.WALK,
+  Category.BIKE,
+  Category.CAR,
+];
 
-function diversityKey(journey) {
-  const modes = new Set(journey.legs.filter(l => l.mode !== Mode.WALK).map(l => l.mode));
-  if (modes.has(Mode.LOCAL_TRAIN)) return 'LOCAL_TRAIN';
-  if (modes.has(Mode.METRO)) return 'METRO';
-  if (modes.size > 1) return 'MULTIMODAL';
-  if (modes.has(Mode.BUS)) return 'BUS';
-  if (journey.category === Category.CAR) return 'CAR';
-  if (journey.category === Category.BIKE) return 'BIKE';
-  return 'WALK';
-}
-
-function filterAndRank(all, directWalkSecs) {
+function selectBestPerCategory(all, directWalkSecs) {
   // Annotate all journeys with effective cost
   const annotated = all.map(j => {
-    const { cost, walkSecs, transitSecs, waitSecs } = computeEffectiveCost(j, j.waitSecs);
-    return {
-      ...j,
-      effectiveCost: cost,
-      _costBreakdown: { walkSecs, transitSecs, waitSecs },
-    };
+    const { cost } = computeEffectiveCost(j, j.waitSecs);
+    return { ...j, effectiveCost: cost };
   });
 
-  // ── Hard filter 1: standalone walk > 60 min ─────────────────────────────────
-  const f1 = annotated.filter(j => {
-    if (j.category === Category.WALK && j.totalDurationSecs > cfg.MAX_WALK_ONLY_SECS) {
-      console.log(`  [filter:DROP] walk-only ${fmt(j.totalDurationSecs)} > 60 min cap`);
-      return false;
+  // Hard filter 1: standalone walk-only routes > 60 min are not useful
+  const f1 = annotated.filter(j =>
+    !(j.category === Category.WALK && j.totalDurationSecs > cfg.MAX_WALK_ONLY_SECS)
+  );
+
+  // Hard filter 2: LOCAL_TRAIN journey with excessive combined walk (to + from station)
+  const f2 = f1.filter(j =>
+    !(j.category === Category.LOCAL_TRAIN && j.totalWalkSecs > cfg.MAX_COMBINED_WALK_SECS)
+  );
+
+  // Hard filter 3: LOCAL_TRAIN journey no faster than walking directly
+  const f3 = f2.filter(j =>
+    !(j.category === Category.LOCAL_TRAIN && j.totalDurationSecs >= directWalkSecs)
+  );
+
+  // Sort by effective cost (ascending)
+  f3.sort((a, b) => a.effectiveCost - b.effectiveCost);
+
+  // Pick the single best journey per category
+  const byCategory = {};
+  for (const j of f3) {
+    if (!byCategory[j.category]) {
+      byCategory[j.category] = j;
     }
-    return true;
-  });
-
-  // ── Hard filter 2: combined walk inside Local > 40 min ──────────────────────
-  const f2 = f1.filter(j => {
-    if (isLocalJourney(j) && j.totalWalkSecs > cfg.MAX_COMBINED_WALK_SECS) {
-      console.log(`  [filter:DROP] local combined walk ${fmt(j.totalWalkSecs)} > 40 min`);
-      return false;
-    }
-    return true;
-  });
-
-  // ── Hard filter 3: Local wait ≥ 45 min when a better alternative exists ─────
-  const hasAlternative = f2.some(j => !isLocalJourney(j) || (j.waitSecs ?? 0) < cfg.MAX_WAIT_HARD_SECS);
-  const f3 = f2.filter(j => {
-    if (isLocalJourney(j) && (j.waitSecs ?? 0) >= cfg.MAX_WAIT_HARD_SECS && hasAlternative) {
-      console.log(`  [filter:DROP] local wait ${fmt(j.waitSecs)} ≥ 45 min with alternatives available`);
-      return false;
-    }
-    return true;
-  });
-
-  // ── Hard filter 4: Local journey no faster than walking directly ─────────────
-  const f4 = f3.filter(j => {
-    if (isLocalJourney(j) && j.totalDurationSecs >= directWalkSecs) {
-      console.log(`  [filter:DROP] local total ${fmt(j.totalDurationSecs)} ≥ direct walk ${fmt(directWalkSecs)}`);
-      return false;
-    }
-    return true;
-  });
-
-  // Sort by effective cost
-  f4.sort((a, b) => a.effectiveCost - b.effectiveCost);
-
-  const bestCost = f4[0]?.effectiveCost ?? Infinity;
-
-  // ── Soft filter 5: outlier > 2.5× best, unless sole mode representative ──────
-  const modeRep = {};
-  for (const j of f4) modeRep[j.category] = (modeRep[j.category] ?? 0) + 1;
-
-  const f5 = f4.filter(j => {
-    if (j.effectiveCost <= bestCost * cfg.OUTLIER_MULTIPLIER) return true;
-    if (modeRep[j.category] === 1) return true;
-    console.log(`  [filter:DROP] outlier effectiveCost=${fmt(j.effectiveCost)} > ${cfg.OUTLIER_MULTIPLIER}× best ${fmt(bestCost)}`);
-    return false;
-  });
-
-  // ── Soft filter 6: per-pair cap + near-duplicate suppression ─────────────────
-  const pairKept = {};
-  const deduped = [];
-
-  for (const j of f5) {
-    if (isLocalJourney(j)) {
-      const pairKey = `${j.boardCode}:${j.alightCode}`;
-      const kept = pairKept[pairKey] ?? [];
-
-      const isNearDup = kept.some(prev => {
-        const depDiff  = Math.abs((j.departure?.getTime() ?? 0) - (prev.departure?.getTime() ?? 0)) / 1000;
-        const costDiff = Math.abs(j.effectiveCost - prev.effectiveCost);
-        return depDiff  < cfg.NEAR_DUP_DEPARTURE_DIFF_SECS &&
-               costDiff < cfg.NEAR_DUP_EFFECTIVE_COST_DIFF_SECS;
-      });
-
-      if (isNearDup) {
-        console.log(`  [filter:DROP] near-dup local ${j.boardCode}→${j.alightCode}`);
-        continue;
-      }
-
-      if (kept.length >= cfg.MAX_OUTPUT_PER_PAIR) {
-        console.log(`  [filter:DROP] pair-cap ${j.boardCode}→${j.alightCode} (already have ${kept.length})`);
-        continue;
-      }
-
-      pairKept[pairKey] = [...kept, j];
-    }
-
-    deduped.push(j);
   }
 
-  // ── Diversity-aware selection ────────────────────────────────────────────────
-  // Pass 1: one best representative from each diversity group
-  const groupBest = {};
-  for (const j of deduped) {
-    const key = diversityKey(j);
-    if (!groupBest[key]) groupBest[key] = j;
-  }
-
-  const result = Object.values(groupBest);
-  const inResult = new Set(result.map(j => j.id));
-
-  // Pass 2: fill remaining slots from ranked pool
-  for (const j of deduped) {
-    if (result.length >= cfg.MAX_RESULTS) break;
-    if (inResult.has(j.id)) continue;
-    result.push(j);
-    inResult.add(j.id);
-  }
-
-  result.sort((a, b) => a.effectiveCost - b.effectiveCost);
-  return result;
+  // Return in canonical order, omitting empty categories
+  return CATEGORY_ORDER.map(cat => byCategory[cat]).filter(Boolean);
 }
 
 // ── Formatting helper (test output only) ──────────────────────────────────────
@@ -403,12 +312,13 @@ function fmt(secs) {
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 /**
- * Find ranked multimodal journeys from origin to destination.
+ * Find the best journey for each supported category: LOCAL_TRAIN, METRO, BUS,
+ * MULTIMODAL, WALK, BIKE, CAR. Returns at most one result per category.
  *
  * @param {{ lat: number, lng: number, name?: string }} origin
  * @param {{ lat: number, lng: number, name?: string }} destination
  * @param {Date} departureTime
- * @returns {Promise<Array>} Up to MAX_RESULTS ranked journey objects
+ * @returns {Promise<{ journeys: Array, warnings: string[] }>}
  */
 export async function findJourneys(origin, destination, departureTime) {
   const depDate = departureTime instanceof Date ? departureTime : new Date(departureTime);
@@ -432,17 +342,17 @@ export async function findJourneys(origin, destination, departureTime) {
   // When RailRadar returned nothing (quota / outage), keep Google LOCAL_TRAIN as fallback.
   const railRadarHasData = localCandidates.length > 0;
   const filteredGoogleCandidates = googleCandidates.filter(j => {
-    if (!j.legs.some(l => l.mode === Mode.LOCAL_TRAIN)) return true;
+    if (j.category !== Category.LOCAL_TRAIN) return true;
     if (railRadarHasData) {
-      console.log('  [filter] DROP Google journey with LOCAL_TRAIN leg (using RailRadar)');
+      console.log('  [filter] DROP Google LOCAL_TRAIN journey (using RailRadar)');
       return false;
     }
-    console.log('  [fallback] Keeping Google LOCAL_TRAIN leg (RailRadar returned no data)');
+    console.log('  [fallback] Keeping Google LOCAL_TRAIN journey (RailRadar returned no data)');
     return true;
   });
 
   const all = [...localCandidates, ...filteredGoogleCandidates];
-  return { journeys: filterAndRank(all, directWalkSecs), warnings };
+  return { journeys: selectBestPerCategory(all, directWalkSecs), warnings };
 }
 
 // Re-export the fmt helper so the test script can use it

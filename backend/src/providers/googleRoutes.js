@@ -223,9 +223,12 @@ function normalizeTransit(route, origin, destination) {
   fillWalkContext(clean, origin?.name, destination?.name);
 
   const transitModes = clean.filter(l => l.mode !== Mode.WALK).map(l => l.mode);
+  const transitModeSet = new Set(transitModes);
   let category = Category.MULTIMODAL;
   if (transitModes.length === 0) category = Category.WALK;
-  else if (transitModes.every(m => m === Mode.BUS)) category = Category.BUS;
+  else if (transitModeSet.size === 1 && transitModeSet.has(Mode.BUS)) category = Category.BUS;
+  else if (transitModeSet.size === 1 && transitModeSet.has(Mode.METRO)) category = Category.METRO;
+  else if (transitModeSet.size === 1 && transitModeSet.has(Mode.LOCAL_TRAIN)) category = Category.LOCAL_TRAIN;
 
   const transitFare = route.travelAdvisory?.transitFare;
   const fare = transitFare
