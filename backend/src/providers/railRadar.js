@@ -12,6 +12,9 @@ const proxyAgent = process.env.HTTPS_PROXY
   : undefined;
 
 function apiGet(path) {
+  if (!config.railRadarKey) {
+    return Promise.reject(new Error('RailRadar API key not configured (RAILRADAR_API_KEY missing)'));
+  }
   return new Promise((resolve, reject) => {
     const req = get(
       `${BASE}${path}`,
@@ -19,7 +22,7 @@ function apiGet(path) {
         agent: proxyAgent,
         headers: {
           Authorization: `Bearer ${config.railRadarKey}`,
-          'User-Agent': 'Mozilla/5.0',
+          'User-Agent': 'CityLink/1.0',
           Accept: 'application/json',
         },
       },
@@ -30,7 +33,15 @@ function apiGet(path) {
           try {
             const body = JSON.parse(data);
             if (res.statusCode !== 200) {
-              reject(new Error(`RailRadar HTTP ${res.statusCode}: ${JSON.stringify(body).slice(0, 300)}`));
+              // Classify error for actionable logging
+              const category =
+                res.statusCode === 401 ? 'AUTH_INVALID_KEY' :
+                res.statusCode === 403 ? 'AUTH_FORBIDDEN' :
+                res.statusCode === 429 ? 'QUOTA_EXCEEDED' :
+                res.statusCode >= 500 ? 'SERVER_ERROR' : 'HTTP_ERROR';
+              reject(new Error(
+                `RailRadar ${category} (${res.statusCode}): ${JSON.stringify(body).slice(0, 200)}`
+              ));
             } else {
               resolve(body);
             }
@@ -40,7 +51,7 @@ function apiGet(path) {
         });
       }
     );
-    req.on('error', reject);
+    req.on('error', (err) => reject(new Error(`RailRadar network error: ${err.message}`)));
   });
 }
 

@@ -48,7 +48,8 @@ export function makeJourney({ category, legs, fare = null }) {
   const departure = legs[0]?.departure ?? null;
   const arrival = legs[legs.length - 1]?.arrival ?? null;
 
-  const sig = legs
+  const depTs = legs[0]?.departure?.getTime() ?? 0;
+  const sig = `${depTs}|` + legs
     .map(l => `${l.mode}:${l.from?.name ?? ''}:${l.to?.name ?? ''}`)
     .join('|');
   const id = Buffer.from(sig).toString('base64url').slice(0, 24);

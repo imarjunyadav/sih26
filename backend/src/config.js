@@ -12,10 +12,11 @@ export const config = {
   port: Number(process.env.PORT || 8080),
   nodeEnv: process.env.NODE_ENV || 'development',
   googleKey: requireEnv('GOOGLE_BACKEND_MAPS_KEY'),
+  // Only browser-safe keys here — never fall back to the backend key.
   googleFrontendKey:
     process.env.GOOGLE_FRONTEND_MAPS_KEY ||
     process.env.GOOGLE_ANDROID_MAPS_KEY ||
-    process.env.GOOGLE_BACKEND_MAPS_KEY,
+    null,
   railRadarKey: requireEnv('RAILRADAR_API_KEY'),
   mapplsStaticKey: process.env.MAPPLS_STATIC_KEY || null
 };

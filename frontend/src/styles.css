@@ -851,12 +851,67 @@ body {
 }
 
 /* ── Journey Map ── */
+.journey-map-wrap {
+  position: relative;
+}
+
 .journey-map {
-  height: 280px;
+  height: 320px;
   border-radius: var(--radius);
   overflow: hidden;
   isolation: isolate;
   box-shadow: var(--shadow);
+}
+
+@media (min-height: 700px) {
+  .journey-map { height: 400px; }
+}
+
+.map-tile-toggle {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  gap: 4px;
+  z-index: 500;
+}
+
+.map-tile-btn {
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+  transition: background 0.15s, color 0.15s;
+}
+
+.map-tile-btn--active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.journey-map .leaflet-control-zoom {
+  border: none;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.12);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 10px;
+  margin-right: 10px;
+}
+
+.journey-map .leaflet-control-zoom a {
+  width: 32px;
+  height: 32px;
+  line-height: 32px;
+  color: var(--text);
+  background: var(--surface);
+  border-color: var(--border);
+  font-size: 16px;
 }
 
 .gps-dot {
