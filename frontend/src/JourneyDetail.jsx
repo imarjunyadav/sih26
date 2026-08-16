@@ -2,17 +2,6 @@ import { useState } from 'react';
 import { fmtTime, fmtDuration, fmtDistance, modeLabel } from './format.js';
 import JourneyMap from './JourneyMap.jsx';
 
-const MODE_ICONS = {
-  LOCAL_TRAIN: '🚆',
-  METRO: '🚇',
-  BUS: '🚌',
-  WALK: '🚶',
-  CAR: '🚗',
-  BIKE: '🚲',
-  FERRY: '⛴',
-  TAXI: '🚕',
-  AUTO: '🛺',
-};
 
 function modeCssClass(mode) {
   const map = {
@@ -51,7 +40,7 @@ function LegRow({ leg }) {
         <span className="leg-place">{leg.from?.name ?? leg.from}</span>
         <div className="leg-info">
           <span className={`leg-chip ${cls}`}>
-            {MODE_ICONS[leg.mode] ?? '•'} {modeLabel(leg.mode)}
+            {modeLabel(leg.mode)}
             {leg.line ? ` · ${leg.line}` : ''}
             {leg.headsign ? ` → ${leg.headsign}` : ''}
           </span>
@@ -135,7 +124,7 @@ export default function JourneyDetail({ journey, requestedAt, onBack }) {
           onClick={() => setTab('timeline')}
           type="button"
         >
-          📋 Timeline
+          Timeline
         </button>
         <button
           role="tab"
@@ -144,7 +133,7 @@ export default function JourneyDetail({ journey, requestedAt, onBack }) {
           onClick={() => setTab('map')}
           type="button"
         >
-          🗺 Map
+          Map
         </button>
       </div>
 

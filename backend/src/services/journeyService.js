@@ -1,9 +1,53 @@
 import { nearbyStations } from '../utils/nearbyStations.js';
 import { STATION_BY_CODE } from '../data/mumbaiLocalStations.js';
 import { railRadarProvider } from '../providers/railRadar.js';
+
 import { googleRoutesProvider } from '../providers/googleRoutes.js';
 import { Mode, Category, makeLeg, makeJourney } from '../models/journey.js';
 import { JOURNEY_CONFIG as cfg } from '../journeyConfig.js';
+
+// ── Railway track polyline ─────────────────────────────────────────────────────
+
+// Station codes in service order for each line (terminus to terminus).
+// Used to build a track-following polyline for local-train legs instead of a
+// straight line. Shared CR/HL stations (CSMT, MSD, SNRD, CLA) appear in
+// both sequences so that HL inter-station pairs resolve correctly.
+const STATION_SEQUENCES = Object.freeze({
+  CR: ['CSMT','MSD','SNRD','BY','CHG','CRD','PR','DR','MTN','SION','CLA','VVH','GC','VK','KJRD','BND','NHU','MLND','TNA','KLVA','MBQ','DIVA','KOPR','DI'],
+  WR: ['CCG','MEL','CYR','GTR','BCL','MX','PL','PBHD','DDR','MRU','MM','BA','KHAR','STC','VLP','ADH','JOS','RMAR','GMN','MDD','KILE','BVI','DIC','MIRA','BYR','NIG','BSR','NSP','VR'],
+  HL: ['CSMT','MSD','SNRD','DKRD','RRD','CTGN','SVE','VDLR','GTBN','CHF','TKNG','CLA','CMBR','GV','MNKD','VSH','SNCR','JNJ','NEU','SWDV','BEPR','KHAG','MANR','KNDS','PNVL'],
+});
+
+function encodePolyline(points) {
+  function encodeNum(n) {
+    n = n < 0 ? ~(n << 1) : (n << 1);
+    let out = '';
+    while (n >= 0x20) { out += String.fromCharCode(((n & 0x1f) | 0x20) + 63); n >>>= 5; }
+    return out + String.fromCharCode(n + 63);
+  }
+  let pLat = 0, pLng = 0, result = '';
+  for (const [lat, lng] of points) {
+    const dLat = Math.round(lat * 1e5) - pLat;
+    const dLng = Math.round(lng * 1e5) - pLng;
+    pLat += dLat; pLng += dLng;
+    result += encodeNum(dLat) + encodeNum(dLng);
+  }
+  return result;
+}
+
+function trainLegPolyline(fromCode, toCode) {
+  for (const seq of Object.values(STATION_SEQUENCES)) {
+    const fi = seq.indexOf(fromCode);
+    const ti = seq.indexOf(toCode);
+    if (fi < 0 || ti < 0) continue;
+    const [lo, hi] = fi <= ti ? [fi, ti] : [ti, fi];
+    const codes = seq.slice(lo, hi + 1);
+    if (fi > ti) codes.reverse();
+    const pts = codes.map(c => STATION_BY_CODE[c]).filter(Boolean).map(s => [s.lat, s.lng]);
+    return pts.length >= 2 ? encodePolyline(pts) : null;
+  }
+  return null;
+}
 
 // ── Walk helpers ───────────────────────────────────────────────────────────────
 
@@ -154,9 +198,13 @@ function stitchLocalJourney(origin, destination, pair, trainLeg, departureDate) 
     trainArrival
   );
 
+  const enrichedTrainLeg = trainLeg.polyline
+    ? trainLeg
+    : { ...trainLeg, polyline: trainLegPolyline(board.code, alight.code) };
+
   const base = makeJourney({
     category: Category.LOCAL_TRAIN,
-    legs: [leg1, trainLeg, leg3],
+    legs: [leg1, enrichedTrainLeg, leg3],
   });
 
   // Override totalDurationSecs to include the platform wait gap
@@ -219,42 +267,54 @@ async function fetchLocalCandidates(pairs, origin, destination, departureDate, w
 
 // ── Relay multimodal candidates ────────────────────────────────────────────────
 
-// Key: line prefix shared with board stations. Value: relay station codes.
-// These stations are metro/rail interchange nodes on each suburban line.
+// Key: line prefix (CR, WR, HL). Value: relay station codes.
+// These are metro/bus interchange nodes that connect local trains to city transit.
+// BVI (Borivali) and TNA (Thane) are major hubs for northern/eastern destinations.
 const TRANSIT_RELAY_CODES = {
-  CR:    ['GC'],    // Ghatkopar (CR) → Metro Line 1 (Versova–Ghatkopar)
-  WR:    ['ADH'],   // Andheri (WR) → Metro Lines 1, 2A, 2B, 7
-  HL:    ['CMBR'],  // Chembur (HL) → Metro Line 2B / Monorail
-  'CR/HL': ['GC', 'CMBR'],
+  CR:      ['GC', 'TNA'],        // Ghatkopar → Metro L1; Thane → major hub
+  WR:      ['ADH', 'BVI'],       // Andheri → Metro L1/2A/2B/7; Borivali → major hub
+  HL:      ['CMBR', 'CLA'],      // Chembur → Metro L2B; Kurla → CR/HL interchange
+  'CR/HL': ['GC', 'CMBR', 'CLA'],
 };
 
-function getRelayStationsForBoard(boardStation) {
+function getMetroRelaysForBoard(boardStation) {
   const codes = new Set();
   for (const seg of boardStation.line.split('/')) {
-    const key = seg.trim();
-    if (TRANSIT_RELAY_CODES[key]) {
-      for (const c of TRANSIT_RELAY_CODES[key]) codes.add(c);
-    }
+    const relays = TRANSIT_RELAY_CODES[seg.trim()] ?? [];
+    for (const c of relays) codes.add(c);
   }
-  const fullLineKey = boardStation.line;
-  if (TRANSIT_RELAY_CODES[fullLineKey]) {
-    for (const c of TRANSIT_RELAY_CODES[fullLineKey]) codes.add(c);
-  }
+  const fullKey = boardStation.line;
+  for (const c of TRANSIT_RELAY_CODES[fullKey] ?? []) codes.add(c);
   return [...codes].map(c => STATION_BY_CODE[c]).filter(Boolean);
 }
 
-async function fetchRelayMultimodalCandidates(boardCandidates, origin, destination, departureDate) {
-  // Build unique (board, relay) pairs
+// Accepts alightCandidates (stations near destination) so that near-destination
+// stations on the same line as the board can serve as relay targets for last-mile
+// transit exploration (e.g. Walk→Train to Kandivali→Bus to TCET).
+async function fetchRelayMultimodalCandidates(boardCandidates, alightCandidates, origin, destination, departureDate) {
+  // Build unique (board, relay) pairs combining metro hub relays + near-destination relays
   const pairs = [];
   const seen = new Set();
   for (const board of boardCandidates) {
-    const relays = getRelayStationsForBoard(board);
-    for (const relay of relays) {
-      if (relay.code === board.code) continue;
-      const key = `${board.code}:${relay.code}`;
+    const relayCodes = new Set();
+
+    // Metro interchange hubs
+    for (const relay of getMetroRelaysForBoard(board)) relayCodes.add(relay.code);
+
+    // Near-destination stations on the same line (last-mile transit relay)
+    for (const alight of alightCandidates) {
+      if (alight.code !== board.code && sharesLine(board, alight)) {
+        relayCodes.add(alight.code);
+      }
+    }
+
+    for (const relayCode of relayCodes) {
+      if (relayCode === board.code) continue;
+      const relay = STATION_BY_CODE[relayCode];
+      if (!relay) continue;
+      const key = `${board.code}:${relayCode}`;
       if (seen.has(key)) continue;
       seen.add(key);
-
       const toBoard = walkEstimate(origin.lat, origin.lng, board.lat, board.lng);
       pairs.push({ board, relay, toBoard });
     }
@@ -335,13 +395,18 @@ async function fetchRelayMultimodalCandidates(boardCandidates, origin, destinati
         ? Math.max(0, (trainLeg.departure.getTime() - leg1.arrival.getTime()) / 1000)
         : 0;
 
+      // Attach station-waypoint polyline to the train leg if not already present
+      const enrichedTrainLeg = trainLeg.polyline
+        ? trainLeg
+        : { ...trainLeg, polyline: trainLegPolyline(board.code, relay.code) };
+
       // Use first (shortest) relay journey from Google as the onward leg bundle
       const relayJourney = relayJourneys[0];
       const relayLegs = relayJourney.legs;
 
       // Train arrival at relay station
-      const trainArrival = trainLeg.arrival
-        ?? new Date(trainLeg.departure.getTime() + trainLeg.durationSecs * 1000);
+      const trainArrival = enrichedTrainLeg.arrival
+        ?? new Date(enrichedTrainLeg.departure.getTime() + enrichedTrainLeg.durationSecs * 1000);
 
       // Shift relay legs to start from train arrival at relay
       const relayLegsDep = relayLegs[0]?.departure;
@@ -355,7 +420,7 @@ async function fetchRelayMultimodalCandidates(boardCandidates, origin, destinati
         arrival:   l.arrival   ? new Date(l.arrival.getTime()   + timeShift) : null,
       }));
 
-      const allLegs = [leg1, trainLeg, ...shiftedRelayLegs];
+      const allLegs = [leg1, enrichedTrainLeg, ...shiftedRelayLegs];
 
       // Dedup fingerprint: board + relay + train departure bucket + relay journey id
       const bucket = trainLeg.departure
@@ -512,7 +577,7 @@ export async function findJourneys(origin, destination, departureTime) {
       ? fetchLocalCandidates(pairs, origin, destination, depDate, warnings)
       : Promise.resolve([]),
     boardCandidates.length > 0
-      ? fetchRelayMultimodalCandidates(boardCandidates, origin, destination, depDate)
+      ? fetchRelayMultimodalCandidates(boardCandidates, alightCandidates, origin, destination, depDate)
       : Promise.resolve([]),
     fetchGoogleCandidates(origin, destination, depDate),
   ]);

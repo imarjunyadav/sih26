@@ -1,13 +1,13 @@
 import JourneyCard from './JourneyCard.jsx';
 
 const CATEGORY_LABELS = {
-  LOCAL_TRAIN: '🚆 Local Train',
-  METRO:       '🚇 Metro',
-  BUS:         '🚌 Bus',
-  MULTIMODAL:  '⟳ Multimodal',
-  WALK:        '🚶 Walking',
-  BIKE:        '🚲 Cycling',
-  CAR:         '🚗 Driving',
+  LOCAL_TRAIN: 'Local Train',
+  METRO:       'Metro',
+  BUS:         'Bus',
+  MULTIMODAL:  'Multimodal',
+  WALK:        'Walking',
+  BIKE:        'Cycling',
+  CAR:         'Driving',
 };
 
 export default function ResultsPanel({ journeys, warnings, error, loading, onSelect, onBack }) {

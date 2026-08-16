@@ -8,7 +8,7 @@ export const JOURNEY_CONFIG = Object.freeze({
 
   // ── Station search ──────────────────────────────────────────────────────────
   NEARBY_RADIUS_KM:    2,   // search radius for board/alight stations
-  NEARBY_MAX_STATIONS: 2,   // max stations considered per end (2×2=4 pairs max vs 3×3=9)
+  NEARBY_MAX_STATIONS: 3,   // max stations per end; up to 3×3=9 pairs, all RailRadar-cached
 
   // ── Walk estimation ─────────────────────────────────────────────────────────
   WALK_SPEED_MPS: 1.3,   // average pedestrian speed in m/s
