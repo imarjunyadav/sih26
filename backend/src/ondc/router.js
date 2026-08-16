@@ -50,7 +50,7 @@ import {
   OrderStatus,
 } from './store/orderStore.js';
 
-import { siteVerificationHandler, onSubscribeHandler } from './onboard.js';
+import { onSubscribeHandler } from './onboard.js';
 
 // ── Event bus for SSE ─────────────────────────────────────────────────────────
 // Each transaction_id gets its own EventEmitter for SSE fan-out.
@@ -80,8 +80,7 @@ const eventBus = {
 export const ondcRouter = Router();
 
 // ── Onboarding ────────────────────────────────────────────────────────────────
-
-ondcRouter.get('/ondc-site-verification.html', siteVerificationHandler);
+// Site verification is served at root by server.js — NOT here.
 ondcRouter.post('/on_subscribe', onSubscribeHandler);
 
 // ── BPP Callbacks ─────────────────────────────────────────────────────────────
@@ -179,6 +178,10 @@ ondcRouter.post('/api/init', async (req, res) => {
     billing,
     totalAmount: txn.quote?.totalAmount ?? null,
   });
+
+  // Store billing now so buildConfirm() can use txn.billing regardless of whether
+  // the BPP echoes it back in on_init.
+  updateTransaction(txnId, { billing });
 
   try {
     const ackResp = await signedPost(`${txn.bppUri}/init`, payload);
