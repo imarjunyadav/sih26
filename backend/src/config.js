@@ -10,7 +10,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 function requireEnv(name) {
-  const value = process.env[name];
+  // .trim() strips trailing newlines that Secret Manager injects when a secret
+  // was stored with `echo key | gcloud secrets versions add ...`.
+  // Without trimming, Node.js rejects the Authorization header with
+  // "Invalid character in header content".
+  const value = process.env[name]?.trim();
   if (!value) {
     console.warn(`[config] Missing env var: ${name}`);
   }
