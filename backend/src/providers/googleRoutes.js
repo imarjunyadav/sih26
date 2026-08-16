@@ -208,7 +208,7 @@ function normalizeTransit(route, origin, destination) {
       arrival: stops.arrivalTime ? new Date(stops.arrivalTime) : null,
       durationSecs: parseSecs(step.staticDuration),
       distanceMeters: step.distanceMeters || 0,
-      line: line.name || line.nameShort || null,
+      line: line.nameShort || line.name || null,
       agency: line.agencies?.map(a => a.name).join(', ') || null,
       vehicle: vehicle.type || null,
       headsign: td.headsign || null,
