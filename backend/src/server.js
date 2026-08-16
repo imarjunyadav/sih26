@@ -46,7 +46,7 @@ app.get('/api/health/railradar', async (req, res) => {
   }
   try {
     // Use a known busy station pair as a connectivity check
-    await railRadarProvider.trainsBetween('CSTM', 'BDTS');
+    await railRadarProvider.trainsBetween('CSMT', 'DR');
     res.json({ ok: true, message: 'RailRadar API reachable and key valid' });
   } catch (err) {
     res.status(503).json({ ok: false, error: err.message });

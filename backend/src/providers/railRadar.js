@@ -15,7 +15,10 @@ const proxyAgent = process.env.HTTPS_PROXY
 // Train schedules are fixed during the day; caching for 30 min avoids burning
 // the 50 req/day free-tier quota when the same station pair is queried
 // multiple times (repeated searches, multiple users, concurrent requests).
-const TRAIN_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+// Train schedules are fixed for the day; caching for 22 h means each station
+// pair is fetched at most once per instance per day, keeping well within the
+// 50 req/day free-tier limit even under moderate multi-user load.
+const TRAIN_CACHE_TTL_MS = 22 * 60 * 60 * 1000; // 22 hours
 const trainCache = new Map(); // key: 'FROM:TO', value: { legs, ts }
 
 function apiGet(path) {
