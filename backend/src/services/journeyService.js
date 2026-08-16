@@ -1,4 +1,5 @@
 import { nearbyStations } from '../utils/nearbyStations.js';
+import { STATION_BY_CODE } from '../data/mumbaiLocalStations.js';
 import { railRadarProvider } from '../providers/railRadar.js';
 import { googleRoutesProvider } from '../providers/googleRoutes.js';
 import { Mode, Category, makeLeg, makeJourney } from '../models/journey.js';
@@ -216,11 +217,179 @@ async function fetchLocalCandidates(pairs, origin, destination, departureDate, w
   return candidates;
 }
 
+// ── Relay multimodal candidates ────────────────────────────────────────────────
+
+// Key: line prefix shared with board stations. Value: relay station codes.
+// These stations are metro/rail interchange nodes on each suburban line.
+const TRANSIT_RELAY_CODES = {
+  CR:    ['GC'],    // Ghatkopar (CR) → Metro Line 1 (Versova–Ghatkopar)
+  WR:    ['ADH'],   // Andheri (WR) → Metro Lines 1, 2A, 2B, 7
+  HL:    ['CMBR'],  // Chembur (HL) → Metro Line 2B / Monorail
+  'CR/HL': ['GC', 'CMBR'],
+};
+
+function getRelayStationsForBoard(boardStation) {
+  const codes = new Set();
+  for (const seg of boardStation.line.split('/')) {
+    const key = seg.trim();
+    if (TRANSIT_RELAY_CODES[key]) {
+      for (const c of TRANSIT_RELAY_CODES[key]) codes.add(c);
+    }
+  }
+  const fullLineKey = boardStation.line;
+  if (TRANSIT_RELAY_CODES[fullLineKey]) {
+    for (const c of TRANSIT_RELAY_CODES[fullLineKey]) codes.add(c);
+  }
+  return [...codes].map(c => STATION_BY_CODE[c]).filter(Boolean);
+}
+
+async function fetchRelayMultimodalCandidates(boardCandidates, origin, destination, departureDate) {
+  // Build unique (board, relay) pairs
+  const pairs = [];
+  const seen = new Set();
+  for (const board of boardCandidates) {
+    const relays = getRelayStationsForBoard(board);
+    for (const relay of relays) {
+      if (relay.code === board.code) continue;
+      const key = `${board.code}:${relay.code}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const toBoard = walkEstimate(origin.lat, origin.lng, board.lat, board.lng);
+      pairs.push({ board, relay, toBoard });
+    }
+  }
+
+  if (pairs.length === 0) return [];
+
+  // Phase 1: RailRadar calls for all (board → relay) pairs
+  const railResults = await Promise.allSettled(
+    pairs.map(p => railRadarProvider.trainsBetween(p.board.code, p.relay.code))
+  );
+
+  // Find relay stations that have eligible trains, with the best (earliest) train per relay
+  const relayTrainMap = new Map(); // relayCode → { pair, trainLeg }[]
+  for (let i = 0; i < railResults.length; i++) {
+    const result = railResults[i];
+    const pair = pairs[i];
+    if (result.status === 'rejected') {
+      console.warn(`[journeyService] RailRadar relay ${pair.board.code}→${pair.relay.code} failed: ${result.reason?.message?.slice(0, 80)}`);
+      continue;
+    }
+    const trains = result.value;
+    const earliestBoard = new Date(departureDate.getTime() + pair.toBoard.durationSecs * 1000);
+    const eligible = trains
+      .filter(t => t.departure && t.departure >= earliestBoard)
+      .slice(0, cfg.TRAINS_PER_PAIR);
+    for (const trainLeg of eligible) {
+      const relayCode = pair.relay.code;
+      if (!relayTrainMap.has(relayCode)) relayTrainMap.set(relayCode, []);
+      relayTrainMap.get(relayCode).push({ pair, trainLeg });
+    }
+  }
+
+  if (relayTrainMap.size === 0) return [];
+
+  const uniqueRelayCodes = [...relayTrainMap.keys()];
+
+  // Phase 2: Google Transit calls from each relay station to destination
+  const googleResults = await Promise.allSettled(
+    uniqueRelayCodes.map(code => {
+      const relay = STATION_BY_CODE[code];
+      return googleRoutesProvider.routeTransit(
+        { lat: relay.lat, lng: relay.lng, name: relay.name },
+        destination,
+        { departureTime: departureDate, routingPreference: 'LESS_WALKING' }
+      );
+    })
+  );
+
+  // Phase 3: stitch MULTIMODAL candidates
+  const candidates = [];
+  const fingerprintsSeen = new Set();
+
+  for (let ri = 0; ri < uniqueRelayCodes.length; ri++) {
+    const gResult = googleResults[ri];
+    if (gResult.status === 'rejected') {
+      console.warn(`[journeyService] Google relay transit failed for ${uniqueRelayCodes[ri]}: ${gResult.reason?.message?.slice(0, 80)}`);
+      continue;
+    }
+    const relayJourneys = gResult.value;
+    if (!relayJourneys || relayJourneys.length === 0) continue;
+
+    const relayCode = uniqueRelayCodes[ri];
+    const trainEntries = relayTrainMap.get(relayCode) || [];
+
+    for (const { pair, trainLeg } of trainEntries) {
+      const { board, relay, toBoard } = pair;
+
+      // Leg 1: walk from origin to board station
+      const leg1 = buildWalkLeg(
+        { name: origin.name ?? 'Origin', lat: origin.lat, lng: origin.lng },
+        { name: board.name, lat: board.lat, lng: board.lng },
+        departureDate
+      );
+
+      // Platform wait at board station
+      const waitSecs = trainLeg.departure
+        ? Math.max(0, (trainLeg.departure.getTime() - leg1.arrival.getTime()) / 1000)
+        : 0;
+
+      // Use first (shortest) relay journey from Google as the onward leg bundle
+      const relayJourney = relayJourneys[0];
+      const relayLegs = relayJourney.legs;
+
+      // Train arrival at relay station
+      const trainArrival = trainLeg.arrival
+        ?? new Date(trainLeg.departure.getTime() + trainLeg.durationSecs * 1000);
+
+      // Shift relay legs to start from train arrival at relay
+      const relayLegsDep = relayLegs[0]?.departure;
+      const timeShift = relayLegsDep
+        ? trainArrival.getTime() - relayLegsDep.getTime()
+        : 0;
+
+      const shiftedRelayLegs = relayLegs.map(l => ({
+        ...l,
+        departure: l.departure ? new Date(l.departure.getTime() + timeShift) : null,
+        arrival:   l.arrival   ? new Date(l.arrival.getTime()   + timeShift) : null,
+      }));
+
+      const allLegs = [leg1, trainLeg, ...shiftedRelayLegs];
+
+      // Dedup fingerprint: board + relay + train departure bucket + relay journey id
+      const bucket = trainLeg.departure
+        ? Math.floor(trainLeg.departure.getTime() / (5 * 60 * 1000))
+        : 0;
+      const fp = `relay:${board.code}:${relay.code}:${bucket}:${relayJourney.id}`;
+      if (fingerprintsSeen.has(fp)) continue;
+      fingerprintsSeen.add(fp);
+
+      const base = makeJourney({ category: Category.MULTIMODAL, legs: allLegs });
+      const totalDurationSecs =
+        leg1.durationSecs + Math.round(waitSecs) + trainLeg.durationSecs +
+        relayJourney.totalDurationSecs;
+
+      const uniqueId = `relay:${board.code}:${relay.code}:${(trainLeg.departure?.getTime() ?? 0).toString(36)}:${relayJourney.id}`;
+      candidates.push({
+        ...base,
+        id: uniqueId,
+        totalDurationSecs,
+        waitSecs: Math.round(waitSecs),
+        source: 'relay-multimodal',
+      });
+    }
+  }
+
+  return candidates;
+}
+
 // ── Google candidates ──────────────────────────────────────────────────────────
 
 async function fetchGoogleCandidates(origin, destination, departureDate) {
-  const [transitRes, walkRes, driveRes, bikeRes] = await Promise.allSettled([
-    googleRoutesProvider.routeTransit(origin, destination, { departureTime: departureDate }),
+  const [transitFewerRes, transitWalkRes, walkRes, driveRes, bikeRes] = await Promise.allSettled([
+    googleRoutesProvider.routeTransit(origin, destination, { departureTime: departureDate, routingPreference: 'FEWER_TRANSFERS' }),
+    googleRoutesProvider.routeTransit(origin, destination, { departureTime: departureDate, routingPreference: 'LESS_WALKING' }),
     googleRoutesProvider.routeWalk(origin, destination, { departureTime: departureDate }),
     googleRoutesProvider.routeCar(origin, destination, { departureTime: departureDate }),
     googleRoutesProvider.routeBike(origin, destination, { departureTime: departureDate }),
@@ -228,12 +397,20 @@ async function fetchGoogleCandidates(origin, destination, departureDate) {
 
   const candidates = [];
 
-  if (transitRes.status === 'fulfilled') {
-    for (const j of transitRes.value) {
-      candidates.push({ ...j, source: 'google-transit' });
+  if (transitFewerRes.status === 'fulfilled') {
+    for (const j of transitFewerRes.value) {
+      candidates.push({ ...j, source: 'google-transit-fewer' });
     }
   } else {
-    console.warn('[journeyService] Google transit failed:', transitRes.reason?.message?.slice(0, 100));
+    console.warn('[journeyService] Google transit (fewer transfers) failed:', transitFewerRes.reason?.message?.slice(0, 100));
+  }
+
+  if (transitWalkRes.status === 'fulfilled') {
+    for (const j of transitWalkRes.value) {
+      candidates.push({ ...j, source: 'google-transit-walk' });
+    }
+  } else {
+    console.warn('[journeyService] Google transit (less walking) failed:', transitWalkRes.reason?.message?.slice(0, 100));
   }
 
   if (walkRes.status === 'fulfilled') {
@@ -328,11 +505,14 @@ export async function findJourneys(origin, destination, departureTime) {
   const alightCandidates = nearbyStations(destination.lat, destination.lng, cfg.NEARBY_RADIUS_KM, cfg.NEARBY_MAX_STATIONS);
   const { pairs, directWalkSecs } = pruneStationPairs(boardCandidates, alightCandidates, origin, destination);
 
-  // Phase 2: fetch candidates (Local + Google in parallel)
+  // Phase 2: fetch candidates (Local + Relay multimodal + Google all in parallel)
   const warnings = [];
-  const [localCandidates, googleCandidates] = await Promise.all([
+  const [localCandidates, relayCandidates, googleCandidates] = await Promise.all([
     pairs.length > 0
       ? fetchLocalCandidates(pairs, origin, destination, depDate, warnings)
+      : Promise.resolve([]),
+    boardCandidates.length > 0
+      ? fetchRelayMultimodalCandidates(boardCandidates, origin, destination, depDate)
       : Promise.resolve([]),
     fetchGoogleCandidates(origin, destination, depDate),
   ]);
@@ -351,7 +531,7 @@ export async function findJourneys(origin, destination, departureTime) {
     return true;
   });
 
-  const all = [...localCandidates, ...filteredGoogleCandidates];
+  const all = [...localCandidates, ...relayCandidates, ...filteredGoogleCandidates];
   return { journeys: selectBestPerCategory(all, directWalkSecs), warnings };
 }
 

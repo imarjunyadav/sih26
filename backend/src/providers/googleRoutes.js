@@ -289,7 +289,7 @@ export const googleRoutesProvider = {
       travelMode: 'TRANSIT',
       transitPreferences: {
         allowedTravelModes: ['BUS', 'SUBWAY', 'TRAIN', 'LIGHT_RAIL', 'RAIL'],
-        routingPreference: 'FEWER_TRANSFERS',
+        routingPreference: opts.routingPreference ?? 'FEWER_TRANSFERS',
       },
       computeAlternativeRoutes: true,
     };
