@@ -40,7 +40,7 @@ export async function lookupPublicKey(subscriberId, uniqueKeyId) {
 
 async function registryLookup(subscriberId, uniqueKeyId) {
   const body = JSON.stringify({ subscriber_id: subscriberId, ukId: uniqueKeyId });
-  const url = new URL('/lookup', ondcConfig.registryUrl);
+  const url = new URL('/v2.0/lookup', ondcConfig.registryUrl);
 
   return new Promise((resolve, reject) => {
     const req = https.request(

@@ -7,14 +7,16 @@
  * Validated against:
  *   - api/components/examples/metro/ (search, select, init, confirm, status, support)
  *   - api/components/attributes/metro/index.yaml
+ *   - api/components/tags/Tag.yaml (SETTLEMENT_TERMS sub-codes per action)
  */
 
 import crypto from 'node:crypto';
 import { buildContext } from '../../core/context.js';
 import { ondcConfig } from '../../config.js';
 
-// ── Payment tags ──────────────────────────────────────────────────────────────
-// Derived from TRV11 2.0.0 search/example_0.yaml and init/example_0.yaml
+// ── BUYER_FINDER_FEES ─────────────────────────────────────────────────────────
+// Present in: search.intent.payment.tags, init.payments.tags, confirm.payments.tags
+// Derived from all 3 Metro search examples and init/confirm examples.
 
 function buyerFinderFeesTags() {
   return [
@@ -29,8 +31,42 @@ function buyerFinderFeesTags() {
   ];
 }
 
-function settlementTermsTags(settlementAmount) {
-  const tags = [
+// ── SETTLEMENT_TERMS — per-action ─────────────────────────────────────────────
+// Sub-codes differ by action. Sources: Metro example files + Tag.yaml.
+//
+// search:   only DELAY_INTEREST + STATIC_TERMS (no amounts, no window/basis)
+// init:     6 sub-codes — adds SETTLEMENT_AMOUNT, TYPE, MANDATORY_ARBITRATION, COURT_JURISDICTION
+//           (no SETTLEMENT_WINDOW, no SETTLEMENT_BASIS per init/example_0.yaml)
+// confirm:  all 8 sub-codes including SETTLEMENT_WINDOW='PT60M' and SETTLEMENT_BASIS='Delivery'
+
+function searchSettlementTermsTags() {
+  const list = [
+    { descriptor: { code: 'DELAY_INTEREST' }, value: '2.5' },
+  ];
+  if (ondcConfig.staticTermsUrl) {
+    list.push({ descriptor: { code: 'STATIC_TERMS' }, value: ondcConfig.staticTermsUrl });
+  }
+  return [{ descriptor: { code: 'SETTLEMENT_TERMS' }, display: false, list }];
+}
+
+function initSettlementTermsTags(settlementAmount) {
+  const list = [
+    { descriptor: { code: 'SETTLEMENT_TYPE' }, value: 'NEFT' },
+    { descriptor: { code: 'DELAY_INTEREST' }, value: '2.5' },
+    { descriptor: { code: 'MANDATORY_ARBITRATION' }, value: 'true' },
+    { descriptor: { code: 'COURT_JURISDICTION' }, value: ondcConfig.courtJurisdiction },
+  ];
+  if (ondcConfig.staticTermsUrl) {
+    list.push({ descriptor: { code: 'STATIC_TERMS' }, value: ondcConfig.staticTermsUrl });
+  }
+  if (settlementAmount != null) {
+    list.push({ descriptor: { code: 'SETTLEMENT_AMOUNT' }, value: String(settlementAmount) });
+  }
+  return [{ descriptor: { code: 'SETTLEMENT_TERMS' }, display: false, list }];
+}
+
+function confirmSettlementTermsTags(settlementAmount) {
+  const list = [
     { descriptor: { code: 'SETTLEMENT_WINDOW' }, value: 'PT60M' },
     { descriptor: { code: 'SETTLEMENT_BASIS' }, value: 'Delivery' },
     { descriptor: { code: 'SETTLEMENT_TYPE' }, value: 'NEFT' },
@@ -38,20 +74,19 @@ function settlementTermsTags(settlementAmount) {
     { descriptor: { code: 'COURT_JURISDICTION' }, value: ondcConfig.courtJurisdiction },
     { descriptor: { code: 'DELAY_INTEREST' }, value: '2.5' },
   ];
-
   if (ondcConfig.staticTermsUrl) {
-    tags.push({ descriptor: { code: 'STATIC_TERMS' }, value: ondcConfig.staticTermsUrl });
+    list.push({ descriptor: { code: 'STATIC_TERMS' }, value: ondcConfig.staticTermsUrl });
   }
-
   if (settlementAmount != null) {
-    tags.push({ descriptor: { code: 'SETTLEMENT_AMOUNT' }, value: String(settlementAmount) });
+    list.push({ descriptor: { code: 'SETTLEMENT_AMOUNT' }, value: String(settlementAmount) });
   }
-
-  return [{ descriptor: { code: 'SETTLEMENT_TERMS' }, display: false, list: tags }];
+  return [{ descriptor: { code: 'SETTLEMENT_TERMS' }, display: false, list }];
 }
 
-function paymentTags(settlementAmount) {
-  return [...buyerFinderFeesTags(), ...settlementTermsTags(settlementAmount)];
+function computeSettlementAmount(totalAmount) {
+  if (totalAmount == null) return null;
+  const feePct = Number(ondcConfig.buyerFinderFeesPct) / 100;
+  return Math.floor(Number(totalAmount) * (1 - feePct)).toString();
 }
 
 // ── Action builders ───────────────────────────────────────────────────────────
@@ -86,7 +121,7 @@ export function buildSearch({ transactionId, from, to }) {
         },
         payment: {
           collected_by: 'BAP',
-          tags: paymentTags(null),
+          tags: [...buyerFinderFeesTags(), ...searchSettlementTermsTags()],
         },
       },
     },
@@ -96,6 +131,7 @@ export function buildSearch({ transactionId, from, to }) {
 /**
  * Build a select message to get a fare quote.
  * TRV11 2.0.0 select/example_0.yaml
+ * Only needs provider.id + items[].id + quantity — no fulfillment_ids or payments.
  */
 export function buildSelect({ transactionId, bppId, bppUri, providerId, itemId, quantity = 1 }) {
   const context = buildContext({ action: 'select', transactionId, bppId, bppUri });
@@ -113,9 +149,13 @@ export function buildSelect({ transactionId, bppId, bppUri, providerId, itemId, 
 /**
  * Build an init message with billing and payment (status: NOT-PAID).
  * TRV11 2.0.0 init/example_0.yaml
+ *
+ * @param {string|null} totalAmount  Total fare from on_select quote (used for SETTLEMENT_AMOUNT).
  */
-export function buildInit({ transactionId, bppId, bppUri, providerId, itemId, quantity = 1, billing }) {
+export function buildInit({ transactionId, bppId, bppUri, providerId, itemId, quantity = 1, billing, totalAmount }) {
   const context = buildContext({ action: 'init', transactionId, bppId, bppUri });
+  const settlementAmt = computeSettlementAmount(totalAmount);
+
   return {
     context,
     message: {
@@ -132,7 +172,7 @@ export function buildInit({ transactionId, bppId, bppUri, providerId, itemId, qu
             collected_by: 'BAP',
             status: 'NOT-PAID',
             type: 'PRE-ORDER',
-            tags: paymentTags(null),
+            tags: [...buyerFinderFeesTags(), ...initSettlementTermsTags(settlementAmt)],
           },
         ],
       },
@@ -144,11 +184,12 @@ export function buildInit({ transactionId, bppId, bppUri, providerId, itemId, qu
  * Build a confirm message with payment (status: PAID).
  * TRV11 2.0.0 confirm/example_0.yaml
  *
- * @param {object} opts
- * @param {string} opts.paymentId           Payment ID from on_init
- * @param {object} opts.onInitPayment       Full payment object from on_init
- * @param {string} opts.paymentTransactionId  Our payment txn ID (or generated UUID for ONDC_MOCK_PAYMENT)
- * @param {string} opts.totalAmount         Total order amount (e.g. '60')
+ * payment.id from on_init is mandatory per attribute spec line 2512.
+ * Throws if not present — this means on_init did not follow the spec.
+ *
+ * @param {object} opts.onInitPayment       Full payment object from on_init (must include .id)
+ * @param {string} opts.paymentTransactionId  BAP-side payment reference (UPI/Razorpay txn ID)
+ * @param {string} opts.totalAmount         Total order amount (e.g. '120')
  */
 export function buildConfirm({
   transactionId,
@@ -164,18 +205,20 @@ export function buildConfirm({
 }) {
   const context = buildContext({ action: 'confirm', transactionId, bppId, bppUri });
 
+  if (!onInitPayment?.id) {
+    throw new Error(
+      'payment.id from on_init is mandatory in confirm — BPP response did not include payments[].id',
+    );
+  }
+
   const txnId = ondcConfig.mockPayment
     ? crypto.randomUUID()
     : (paymentTransactionId ?? crypto.randomUUID());
 
-  // Settle 99% of the total (BFF takes 1% finder fee)
-  const feePct = Number(ondcConfig.buyerFinderFeesPct) / 100;
-  const settlementAmt = totalAmount
-    ? Math.floor(Number(totalAmount) * (1 - feePct)).toString()
-    : null;
+  const settlementAmt = computeSettlementAmount(totalAmount);
 
   const payment = {
-    id: onInitPayment?.id,
+    id: onInitPayment.id,
     collected_by: 'BAP',
     status: 'PAID',
     type: 'PRE-ORDER',
@@ -188,11 +231,8 @@ export function buildConfirm({
         bank_account_number: onInitPayment.params.bank_account_number,
       }),
     },
-    tags: paymentTags(settlementAmt),
+    tags: [...buyerFinderFeesTags(), ...confirmSettlementTermsTags(settlementAmt)],
   };
-
-  // Remove undefined id
-  if (!payment.id) delete payment.id;
 
   return {
     context,

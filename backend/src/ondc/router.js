@@ -177,6 +177,7 @@ ondcRouter.post('/api/init', async (req, res) => {
     itemId: txn.selectedItemId,
     quantity: txn.selectedQuantity ?? 1,
     billing,
+    totalAmount: txn.quote?.totalAmount ?? null,
   });
 
   try {
