@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -9,6 +9,17 @@ const MODE_COLORS = {
   WALK:        '#9ca3af',
   CAR:         '#9ca3af',
   BIKE:        '#059669',
+};
+
+const TILE_LAYERS = {
+  map: {
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+    label: 'Map',
+  },
+  detail: {
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    label: 'Detail',
+  },
 };
 
 function decodePolyline(encoded) {
@@ -28,7 +39,11 @@ function decodePolyline(encoded) {
 
 export default function JourneyMap({ journey }) {
   const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const tileRef = useRef(null);
+  const [tileKey, setTileKey] = useState('map');
 
+  // Build the map once
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -36,8 +51,11 @@ export default function JourneyMap({ journey }) {
       zoomControl: false,
       attributionControl: false,
     });
+    mapRef.current = map;
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    tileRef.current = L.tileLayer(TILE_LAYERS.map.url, {
       maxZoom: 19,
       subdomains: 'abcd',
     }).addTo(map);
@@ -57,7 +75,7 @@ export default function JourneyMap({ journey }) {
         if (coords.length > 0) {
           L.polyline(coords, {
             color,
-            weight: isWalk ? 3 : 4,
+            weight: isWalk ? 3 : 5,
             opacity: 0.85,
             dashArray: isWalk ? '6, 8' : null,
           }).addTo(map);
@@ -92,7 +110,7 @@ export default function JourneyMap({ journey }) {
     }
 
     if (bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [30, 30] });
+      map.fitBounds(bounds, { padding: [48, 48] });
     }
 
     let watchId = null;
@@ -119,8 +137,39 @@ export default function JourneyMap({ journey }) {
     return () => {
       if (watchId != null) navigator.geolocation.clearWatch(watchId);
       map.remove();
+      mapRef.current = null;
+      tileRef.current = null;
     };
   }, [journey]);
 
-  return <div ref={containerRef} className="journey-map" />;
+  // Swap tile layer when tileKey changes without rebuilding the map
+  useEffect(() => {
+    const map = mapRef.current;
+    const oldTile = tileRef.current;
+    if (!map || !oldTile) return;
+    oldTile.remove();
+    tileRef.current = L.tileLayer(TILE_LAYERS[tileKey].url, {
+      maxZoom: 19,
+      subdomains: 'abcd',
+    }).addTo(map);
+    tileRef.current.bringToBack();
+  }, [tileKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="journey-map-wrap">
+      <div ref={containerRef} className="journey-map" />
+      <div className="map-tile-toggle" role="group" aria-label="Map style">
+        {Object.entries(TILE_LAYERS).map(([key, { label }]) => (
+          <button
+            key={key}
+            type="button"
+            className={`map-tile-btn${tileKey === key ? ' map-tile-btn--active' : ''}`}
+            onClick={() => setTileKey(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }

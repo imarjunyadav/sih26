@@ -11,7 +11,17 @@ const proxyAgent = process.env.HTTPS_PROXY
   ? new HttpsProxyAgent(process.env.HTTPS_PROXY)
   : undefined;
 
+// In-process cache for trainsBetween results.
+// Train schedules are fixed during the day; caching for 30 min avoids burning
+// the 50 req/day free-tier quota when the same station pair is queried
+// multiple times (repeated searches, multiple users, concurrent requests).
+const TRAIN_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const trainCache = new Map(); // key: 'FROM:TO', value: { legs, ts }
+
 function apiGet(path) {
+  if (!config.railRadarKey) {
+    return Promise.reject(new Error('RailRadar API key not configured (RAILRADAR_API_KEY missing)'));
+  }
   return new Promise((resolve, reject) => {
     const req = get(
       `${BASE}${path}`,
@@ -19,7 +29,7 @@ function apiGet(path) {
         agent: proxyAgent,
         headers: {
           Authorization: `Bearer ${config.railRadarKey}`,
-          'User-Agent': 'Mozilla/5.0',
+          'User-Agent': 'CityLink/1.0',
           Accept: 'application/json',
         },
       },
@@ -30,7 +40,15 @@ function apiGet(path) {
           try {
             const body = JSON.parse(data);
             if (res.statusCode !== 200) {
-              reject(new Error(`RailRadar HTTP ${res.statusCode}: ${JSON.stringify(body).slice(0, 300)}`));
+              // Classify error for actionable logging
+              const category =
+                res.statusCode === 401 ? 'AUTH_INVALID_KEY' :
+                res.statusCode === 403 ? 'AUTH_FORBIDDEN' :
+                res.statusCode === 429 ? 'QUOTA_EXCEEDED' :
+                res.statusCode >= 500 ? 'SERVER_ERROR' : 'HTTP_ERROR';
+              reject(new Error(
+                `RailRadar ${category} (${res.statusCode}): ${JSON.stringify(body).slice(0, 200)}`
+              ));
             } else {
               resolve(body);
             }
@@ -40,7 +58,7 @@ function apiGet(path) {
         });
       }
     );
-    req.on('error', reject);
+    req.on('error', (err) => reject(new Error(`RailRadar network error: ${err.message}`)));
   });
 }
 
@@ -118,8 +136,17 @@ export const railRadarProvider = {
   /**
    * Fetch scheduled trains between two station codes.
    * Returns an array of LOCAL_TRAIN Legs (one per train).
+   * Results are cached per station pair for 30 minutes to stay within the
+   * 50 req/day free-tier limit — train schedules are fixed throughout the day.
    */
   async trainsBetween(fromCode, toCode) {
+    const cacheKey = `${fromCode}:${toCode}`;
+    const cached = trainCache.get(cacheKey);
+    if (cached && (Date.now() - cached.ts) < TRAIN_CACHE_TTL_MS) {
+      console.log(`[railradar] cache hit ${fromCode}→${toCode} (${cached.legs.length} trains)`);
+      return cached.legs;
+    }
+
     const body = await apiGet(`/v1/trains/between/${fromCode}/${toCode}`);
     const trains = body?.data?.trains ?? body?.trains ?? [];
     if (!Array.isArray(trains)) return [];
@@ -136,6 +163,8 @@ export const railRadarProvider = {
       }
       legs.push(leg);
     }
+
+    trainCache.set(cacheKey, { legs, ts: Date.now() });
     return legs;
   },
 

@@ -235,10 +235,6 @@ async function fetchGoogleCandidates(origin, destination, departureDate) {
 
   if (transitRes.status === 'fulfilled') {
     for (const j of transitRes.value) {
-      if (j.legs.some(l => l.mode === Mode.LOCAL_TRAIN)) {
-        console.log('  [filter] DROP Google journey with LOCAL_TRAIN leg (using RailRadar)');
-        continue;
-      }
       candidates.push({ ...j, source: 'google-transit' });
     }
   } else {
@@ -431,8 +427,21 @@ export async function findJourneys(origin, destination, departureTime) {
     fetchGoogleCandidates(origin, destination, depDate),
   ]);
 
-  // Phase 3: filter and rank
-  const all = [...localCandidates, ...googleCandidates];
+  // Phase 3: apply LOCAL_TRAIN filter to Google candidates.
+  // When RailRadar produced data, drop Google's LOCAL_TRAIN journeys to avoid duplicates.
+  // When RailRadar returned nothing (quota / outage), keep Google LOCAL_TRAIN as fallback.
+  const railRadarHasData = localCandidates.length > 0;
+  const filteredGoogleCandidates = googleCandidates.filter(j => {
+    if (!j.legs.some(l => l.mode === Mode.LOCAL_TRAIN)) return true;
+    if (railRadarHasData) {
+      console.log('  [filter] DROP Google journey with LOCAL_TRAIN leg (using RailRadar)');
+      return false;
+    }
+    console.log('  [fallback] Keeping Google LOCAL_TRAIN leg (RailRadar returned no data)');
+    return true;
+  });
+
+  const all = [...localCandidates, ...filteredGoogleCandidates];
   return { journeys: filterAndRank(all, directWalkSecs), warnings };
 }
 

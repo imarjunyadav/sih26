@@ -31,9 +31,26 @@ app.get('/api/health', (req, res) => {
     time: new Date().toISOString(),
     providers: {
       googleRoutes: Boolean(config.googleKey),
-      railRadar: Boolean(config.railRadarKey)
+      railRadar: Boolean(config.railRadarKey),
+      railRadarKeyConfigured: Boolean(config.railRadarKey),
     }
   });
+});
+
+// Probe RailRadar connectivity — useful for diagnosing key issues from Cloud Run.
+// Only calls the API if the key is configured; does not count toward rate limits beyond one call.
+app.get('/api/health/railradar', async (req, res) => {
+  const { railRadarProvider } = await import('./providers/railRadar.js');
+  if (!config.railRadarKey) {
+    return res.status(503).json({ ok: false, error: 'RAILRADAR_API_KEY not configured' });
+  }
+  try {
+    // Use a known busy station pair as a connectivity check
+    await railRadarProvider.trainsBetween('CSTM', 'BDTS');
+    res.json({ ok: true, message: 'RailRadar API reachable and key valid' });
+  } catch (err) {
+    res.status(503).json({ ok: false, error: err.message });
+  }
 });
 
 app.get('/api/config/public', (req, res) => {

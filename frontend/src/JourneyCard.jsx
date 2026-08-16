@@ -73,12 +73,19 @@ export default function JourneyCard({ journey, onClick }) {
       <div className="journey-modes">
         {journey.legs
           .filter(leg => leg.mode !== 'WALK' || journey.legs.length === 1)
-          .map((leg, i) => (
-            <span key={i} className={`leg-chip ${modeCssClass(leg.mode)}`}>
-              {MODE_ICONS[leg.mode] ?? leg.mode}
-              {leg.line && <span className="leg-line"> {leg.line}</span>}
-            </span>
-          ))}
+          .map((leg, i) => {
+            // For local trains, headsign (e.g. "CST FAST") is more useful than the numeric train number.
+            // For buses and metro, route/line name is the key identifier.
+            const chipLabel = leg.mode === 'LOCAL_TRAIN'
+              ? (leg.headsign || leg.line || null)
+              : (leg.line || null);
+            return (
+              <span key={i} className={`leg-chip ${modeCssClass(leg.mode)}`}>
+                {MODE_ICONS[leg.mode] ?? leg.mode}
+                {chipLabel && <span className="leg-line"> {chipLabel}</span>}
+              </span>
+            );
+          })}
       </div>
 
       <div className="journey-card-bot">
