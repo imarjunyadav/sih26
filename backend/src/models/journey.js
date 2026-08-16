@@ -12,6 +12,8 @@ export const Category = Object.freeze({
   BIKE: 'BIKE',
   WALK: 'WALK',
   BUS: 'BUS',
+  METRO: 'METRO',
+  LOCAL_TRAIN: 'LOCAL_TRAIN',
   MULTIMODAL: 'MULTIMODAL',
 });
 
