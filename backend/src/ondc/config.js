@@ -6,8 +6,8 @@ export const ondcConfig = {
   signingPublicKey: process.env.ONDC_SIGNING_PUBLIC_KEY || null,
   encryptionPrivateKey: process.env.ONDC_ENCRYPTION_PRIVATE_KEY || null,
   encryptionPublicKey: process.env.ONDC_ENCRYPTION_PUBLIC_KEY || null,
-  registryUrl: process.env.ONDC_REGISTRY_URL || 'https://staging.registry.ondc.org',
-  gatewayUrl: process.env.ONDC_GATEWAY_URL || 'https://staging.gateway.ondc.org',
+  registryUrl: process.env.ONDC_REGISTRY_URL || 'https://preprod.registry.ondc.org',
+  gatewayUrl: process.env.ONDC_GATEWAY_URL || 'https://preprod.gateway.ondc.org',
   env: process.env.ONDC_ENV || 'uat',
   // When true, confirm uses a generated UUID as payment transaction_id (for Pramaan testing)
   mockPayment: process.env.ONDC_MOCK_PAYMENT === 'true',
