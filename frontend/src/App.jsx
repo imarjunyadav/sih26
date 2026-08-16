@@ -100,8 +100,9 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Mumbai Multimodal</h1>
-        <p className="tagline">Local · Metro · BEST · Walk</p>
+        <span className="app-header-icon">🚇</span>
+        <h1>CityLink</h1>
+        <span className="app-header-tagline">Local · Metro · BEST · Walk</span>
       </header>
 
       <main className="app-main">

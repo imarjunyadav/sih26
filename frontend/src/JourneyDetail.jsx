@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { fmtTime, fmtDuration, fmtDistance, modeLabel } from './format.js';
 import JourneyMap from './JourneyMap.jsx';
 
@@ -15,15 +16,9 @@ const MODE_ICONS = {
 
 function modeCssClass(mode) {
   const map = {
-    LOCAL_TRAIN: 'train',
-    METRO: 'metro',
-    BUS: 'bus',
-    WALK: 'walk',
-    CAR: 'car',
-    BIKE: 'bike',
-    FERRY: 'walk',
-    TAXI: 'car',
-    AUTO: 'car',
+    LOCAL_TRAIN: 'train', METRO: 'metro', BUS: 'bus',
+    WALK: 'walk', CAR: 'car', BIKE: 'bike',
+    FERRY: 'walk', TAXI: 'car', AUTO: 'car',
   };
   return `mode-${map[mode] ?? 'walk'}`;
 }
@@ -31,7 +26,7 @@ function modeCssClass(mode) {
 function WaitIndicator({ minutes }) {
   return (
     <div className="leg-wait">
-      <div className="leg-icon-col">
+      <div className="leg-wait-col">
         <span className="leg-connector leg-connector--wait" aria-hidden="true" />
       </div>
       <div className="leg-wait-body">
@@ -43,23 +38,26 @@ function WaitIndicator({ minutes }) {
 
 function LegRow({ leg }) {
   const cls = modeCssClass(leg.mode);
+  const stopCount = leg.intermediateStops?.length ?? leg.numStops ?? null;
+
   return (
     <div className={`leg-row leg-row--${cls}`}>
+      <div className="leg-timestamp">{fmtTime(leg.departure)}</div>
       <div className="leg-icon-col">
         <span className={`leg-mode-dot ${cls}`} aria-hidden="true" />
         <span className="leg-connector" aria-hidden="true" />
       </div>
       <div className="leg-body">
-        <div className="leg-from-time">
-          <span className="leg-place">{leg.from?.name ?? leg.from}</span>
-          <span className="leg-time">{fmtTime(leg.departure)}</span>
-        </div>
+        <span className="leg-place">{leg.from?.name ?? leg.from}</span>
         <div className="leg-info">
           <span className={`leg-chip ${cls}`}>
             {MODE_ICONS[leg.mode] ?? '•'} {modeLabel(leg.mode)}
             {leg.line ? ` · ${leg.line}` : ''}
             {leg.headsign ? ` → ${leg.headsign}` : ''}
           </span>
+          {stopCount != null && stopCount > 0 && (
+            <span className="leg-stops">{stopCount} stop{stopCount > 1 ? 's' : ''}</span>
+          )}
           <span className="leg-meta">
             {fmtDuration(leg.durationSecs)}
             {leg.distanceMeters ? ` · ${fmtDistance(leg.distanceMeters)}` : ''}
@@ -72,6 +70,8 @@ function LegRow({ leg }) {
 }
 
 export default function JourneyDetail({ journey, requestedAt, onBack }) {
+  const [tab, setTab] = useState('timeline');
+
   const totalSecs = journey.durationSecs ?? 0;
   const walkMins = Math.round((journey.totalWalkSecs ?? 0) / 60);
   const waitMins = Math.round((journey.waitSecs ?? 0) / 60);
@@ -82,6 +82,9 @@ export default function JourneyDetail({ journey, requestedAt, onBack }) {
     ? Math.round((firstDep - reqAt) / 60000)
     : 0;
 
+  const fareVal = journey.fare?.amount ?? journey.fare;
+  const lastLeg = journey.legs[journey.legs.length - 1];
+
   return (
     <div className="detail-panel">
       <div className="results-header">
@@ -91,78 +94,92 @@ export default function JourneyDetail({ journey, requestedAt, onBack }) {
         <h2 className="results-title">Journey detail</h2>
       </div>
 
-      <div className="detail-summary card">
-        <div className="detail-summary-row">
-          <span className="detail-label">Total time</span>
-          <span className="detail-value">{fmtDuration(totalSecs)}</span>
+      {/* Summary chips */}
+      <div className="detail-summary-chips">
+        <div className="detail-chip">
+          <span className="detail-chip-value">{fmtDuration(totalSecs)}</span>
+          <span className="detail-chip-label">Total</span>
         </div>
-        {preDepartureWaitMins >= 5 && (
-          <div className="detail-summary-row">
-            <span className="detail-label">Wait before departure</span>
-            <span className="detail-value detail-value--warn">{fmtDuration(preDepartureWaitMins * 60)}</span>
+        {walkMins > 0 && (
+          <div className="detail-chip">
+            <span className="detail-chip-value">{walkMins}m</span>
+            <span className="detail-chip-label">Walk</span>
           </div>
         )}
         {waitMins > 0 && (
-          <div className="detail-summary-row">
-            <span className="detail-label">Transfer waiting</span>
-            <span className="detail-value">{fmtDuration(journey.waitSecs)}</span>
-          </div>
-        )}
-        {walkMins > 0 && (
-          <div className="detail-summary-row">
-            <span className="detail-label">Walking</span>
-            <span className="detail-value">{fmtDuration(journey.totalWalkSecs)}</span>
+          <div className={`detail-chip${preDepartureWaitMins >= 5 ? ' detail-chip--warn' : ''}`}>
+            <span className="detail-chip-value">{waitMins}m</span>
+            <span className="detail-chip-label">Wait</span>
           </div>
         )}
         {journey.transferCount > 0 && (
-          <div className="detail-summary-row">
-            <span className="detail-label">Transfers</span>
-            <span className="detail-value">{journey.transferCount}</span>
+          <div className="detail-chip">
+            <span className="detail-chip-value">{journey.transferCount}</span>
+            <span className="detail-chip-label">Change{journey.transferCount > 1 ? 's' : ''}</span>
           </div>
         )}
-        {journey.fare != null && (
-          <div className="detail-summary-row">
-            <span className="detail-label">Fare</span>
-            <span className="detail-value">₹{journey.fare?.amount ?? journey.fare}</span>
+        {fareVal != null && (
+          <div className="detail-chip detail-chip--fare">
+            <span className="detail-chip-value">₹{fareVal}</span>
+            <span className="detail-chip-label">Fare</span>
           </div>
         )}
       </div>
 
-      <div className="leg-timeline">
-        {journey.legs.map((leg, i) => {
-          const prev = journey.legs[i - 1];
-          let waitBetween = 0;
-          if (prev?.arrival && leg.departure) {
-            waitBetween = Math.round(
-              (new Date(leg.departure) - new Date(prev.arrival)) / 60000
+      {/* Tabs */}
+      <div className="detail-tabs" role="tablist">
+        <button
+          role="tab"
+          aria-selected={tab === 'timeline'}
+          className={`detail-tab${tab === 'timeline' ? ' detail-tab--active' : ''}`}
+          onClick={() => setTab('timeline')}
+          type="button"
+        >
+          📋 Timeline
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === 'map'}
+          className={`detail-tab${tab === 'map' ? ' detail-tab--active' : ''}`}
+          onClick={() => setTab('map')}
+          type="button"
+        >
+          🗺 Map
+        </button>
+      </div>
+
+      {/* Timeline tab */}
+      {tab === 'timeline' && (
+        <div className="leg-timeline" role="tabpanel">
+          {journey.legs.map((leg, i) => {
+            const prev = journey.legs[i - 1];
+            let waitBetween = 0;
+            if (prev?.arrival && leg.departure) {
+              waitBetween = Math.round((new Date(leg.departure) - new Date(prev.arrival)) / 60000);
+            }
+            return (
+              <div key={i}>
+                {waitBetween >= 2 && <WaitIndicator minutes={waitBetween} />}
+                <LegRow leg={leg} />
+              </div>
             );
-          }
-          return (
-            <div key={i}>
-              {waitBetween >= 2 && <WaitIndicator minutes={waitBetween} />}
-              <LegRow leg={leg} />
+          })}
+
+          {/* Arrival terminus */}
+          <div className="leg-terminus">
+            <div className="leg-terminus-stamp">{fmtTime(lastLeg?.arrival)}</div>
+            <div className="leg-icon-col">
+              <span className="leg-terminus-dot" aria-hidden="true" />
             </div>
-          );
-        })}
-        {/* Arrival terminus */}
-        <div className="leg-terminus">
-          <div className="leg-icon-col">
-            <span className="leg-terminus-dot" aria-hidden="true" />
-          </div>
-          <div className="leg-body">
-            <div className="leg-from-time">
-              <span className="leg-place">
-                {journey.legs[journey.legs.length - 1]?.to?.name ?? journey.legs[journey.legs.length - 1]?.to}
-              </span>
-              <span className="leg-time">
-                {fmtTime(journey.legs[journey.legs.length - 1]?.arrival)}
-              </span>
+            <div className="leg-body" style={{ paddingBottom: 8 }}>
+              <span className="leg-place">{lastLeg?.to?.name ?? lastLeg?.to}</span>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <JourneyMap journey={journey} />
+      {/* Map tab */}
+      {tab === 'map' && <JourneyMap journey={journey} />}
     </div>
   );
 }

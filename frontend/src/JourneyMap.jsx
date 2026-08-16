@@ -3,12 +3,12 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 const MODE_COLORS = {
-  LOCAL_TRAIN: '#4f8cff',
-  METRO:       '#9b6bff',
-  BUS:         '#ff9640',
-  WALK:        '#93a0c2',
-  CAR:         '#93a0c2',
-  BIKE:        '#3ddc97',
+  LOCAL_TRAIN: '#2563eb',
+  METRO:       '#7c3aed',
+  BUS:         '#ea580c',
+  WALK:        '#9ca3af',
+  CAR:         '#9ca3af',
+  BIKE:        '#059669',
 };
 
 function decodePolyline(encoded) {
@@ -37,7 +37,7 @@ export default function JourneyMap({ journey }) {
       attributionControl: false,
     });
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
       maxZoom: 19,
       subdomains: 'abcd',
     }).addTo(map);
@@ -79,7 +79,7 @@ export default function JourneyMap({ journey }) {
     if (first?.from?.lat != null) {
       L.circleMarker([first.from.lat, first.from.lng], {
         radius: 7, color: '#fff', weight: 2,
-        fillColor: '#3ddc97', fillOpacity: 1,
+        fillColor: '#059669', fillOpacity: 1,
       }).addTo(map);
     }
 
@@ -87,7 +87,7 @@ export default function JourneyMap({ journey }) {
     if (last?.to?.lat != null) {
       L.circleMarker([last.to.lat, last.to.lng], {
         radius: 7, color: '#fff', weight: 2,
-        fillColor: '#ff6b6b', fillOpacity: 1,
+        fillColor: '#dc2626', fillOpacity: 1,
       }).addTo(map);
     }
 
