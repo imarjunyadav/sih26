@@ -1,4 +1,13 @@
-import 'dotenv/config';
+import { fileURLToPath } from 'url';
+import path from 'path';
+import dotenv from 'dotenv';
+
+// Resolve .env from repo root regardless of the process's working directory.
+// config.js lives at backend/src/config.js; the repo root is three levels up.
+// In Cloud Run the container has no .env file so dotenv silently does nothing —
+// Cloud Run injects env vars directly into process.env before Node starts.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 function requireEnv(name) {
   const value = process.env[name];
