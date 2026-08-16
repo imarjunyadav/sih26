@@ -1,14 +1,26 @@
 import { useState, useEffect } from 'react';
 import PlaceInput from './PlaceInput.jsx';
 
+const RECENT_KEY = 'citylink_recent_v1';
+const MAX_RECENT = 5;
+
 function toLocalDatetimeStr(date) {
   const off = date.getTimezoneOffset();
   const local = new Date(date.getTime() - off * 60000);
   return local.toISOString().slice(0, 16);
 }
 
-function nowIST() {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+function loadRecent() {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]'); }
+  catch { return []; }
+}
+
+function saveRecent(origin, destination) {
+  const entry = { origin, destination };
+  const prev = loadRecent().filter(
+    r => !(r.origin?.name === origin.name && r.destination?.name === destination.name)
+  );
+  localStorage.setItem(RECENT_KEY, JSON.stringify([entry, ...prev].slice(0, MAX_RECENT)));
 }
 
 export default function SearchPanel({ onSearch, initialOrigin, initialDestination }) {
@@ -19,17 +31,11 @@ export default function SearchPanel({ onSearch, initialOrigin, initialDestinatio
   const [gpsLoading, setGpsLoading] = useState(false);
   const [isNow, setIsNow] = useState(true);
   const [depTime, setDepTime] = useState(toLocalDatetimeStr(new Date()));
-  const [clock, setClock] = useState('');
+  const [recent, setRecent] = useState(loadRecent);
 
   useEffect(() => {
-    function tick() {
-      setClock(new Date().toLocaleTimeString('en-IN', {
-        timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false,
-      }));
-      if (isNow) setDepTime(toLocalDatetimeStr(new Date()));
-    }
-    tick();
-    const id = setInterval(tick, 30000);
+    if (!isNow) return;
+    const id = setInterval(() => setDepTime(toLocalDatetimeStr(new Date())), 30000);
     return () => clearInterval(id);
   }, [isNow]);
 
@@ -41,7 +47,7 @@ export default function SearchPanel({ onSearch, initialOrigin, initialDestinatio
 
   function handleGps() {
     if (!navigator.geolocation) {
-      setGpsError('Geolocation not supported by this browser');
+      setGpsError('Geolocation not supported');
       return;
     }
     setGpsLoading(true);
@@ -49,18 +55,11 @@ export default function SearchPanel({ onSearch, initialOrigin, initialDestinatio
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setGpsLoading(false);
-        setOrigin({
-          name: 'Current location',
-          address: '',
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        });
+        setOrigin({ name: 'Current location', address: '', lat: pos.coords.latitude, lng: pos.coords.longitude });
       },
       (err) => {
         setGpsLoading(false);
-        setGpsError(
-          err.code === 1 ? 'Location access denied' : 'Could not get your location'
-        );
+        setGpsError(err.code === 1 ? 'Location access denied' : 'Could not get your location');
       },
       { timeout: 10000, maximumAge: 60000 }
     );
@@ -70,21 +69,33 @@ export default function SearchPanel({ onSearch, initialOrigin, initialDestinatio
     e.preventDefault();
     if (!origin || !destination) return;
     const departureTime = isNow ? new Date().toISOString() : new Date(depTime).toISOString();
+    saveRecent(origin, destination);
+    setRecent(loadRecent());
     onSearch(origin, destination, departureTime);
+  }
+
+  function applyRecent(r) {
+    setOrigin(r.origin);
+    setDestination(r.destination);
+    setSwapCount((c) => c + 1);
   }
 
   const biasCoords = origin ? { lat: origin.lat, lng: origin.lng } : undefined;
 
   return (
     <form className="search-panel" onSubmit={handleSubmit} noValidate>
-      <div className="search-fields">
-        <div className="search-origin-row">
-          <PlaceInput
-            key={`origin-${swapCount}`}
-            label="From"
-            value={origin}
-            onSelect={setOrigin}
-          />
+      {/* From / To card */}
+      <div className="search-fields-card">
+        <div className="search-field-row">
+          <span className="search-dot search-dot--from" aria-hidden="true" />
+          <div className="search-field-input">
+            <PlaceInput
+              key={`origin-${swapCount}`}
+              label="From"
+              value={origin}
+              onSelect={setOrigin}
+            />
+          </div>
           <button
             type="button"
             className={`gps-btn${gpsLoading ? ' gps-btn--loading' : ''}`}
@@ -96,54 +107,78 @@ export default function SearchPanel({ onSearch, initialOrigin, initialDestinatio
           </button>
         </div>
 
-        <div className="search-swap-row">
-          <button
-            type="button"
-            className="swap-btn"
-            aria-label="Swap origin and destination"
-            onClick={swap}
-          >
+        <div className="search-connector-row">
+          <span className="search-connector-line" aria-hidden="true" />
+          <button type="button" className="swap-btn" aria-label="Swap origin and destination" onClick={swap}>
             ⇅
           </button>
         </div>
 
-        <PlaceInput
-          key={`dest-${swapCount}`}
-          label="To"
-          value={destination}
-          onSelect={setDestination}
-          biasCoords={biasCoords}
-        />
-      </div>
-
-      <div className="search-time-row">
-        <span className="search-clock">{clock} IST</span>
-        <div className="time-picker-row">
-          <button
-            type="button"
-            className={`time-now-btn${isNow ? ' time-now-btn--active' : ''}`}
-            onClick={() => { setIsNow(true); setDepTime(toLocalDatetimeStr(new Date())); }}
-          >
-            Now
-          </button>
-          <input
-            type="datetime-local"
-            className="time-input"
-            value={depTime}
-            onChange={(e) => { setIsNow(false); setDepTime(e.target.value); }}
-          />
+        <div className="search-field-row">
+          <span className="search-dot search-dot--to" aria-hidden="true" />
+          <div className="search-field-input">
+            <PlaceInput
+              key={`dest-${swapCount}`}
+              label="To"
+              value={destination}
+              onSelect={setDestination}
+              biasCoords={biasCoords}
+            />
+          </div>
         </div>
       </div>
 
       {gpsError && <p className="error gps-error">{gpsError}</p>}
 
-      <button
-        type="submit"
-        className="search-btn"
-        disabled={!origin || !destination}
-      >
-        Find routes
+      {/* Time picker */}
+      <div className="search-time-card">
+        <button
+          type="button"
+          className={`time-pill${isNow ? ' time-pill--active' : ''}`}
+          onClick={() => { setIsNow(true); setDepTime(toLocalDatetimeStr(new Date())); }}
+        >
+          🕐 Now
+        </button>
+        <input
+          type="datetime-local"
+          className={`time-input${isNow ? ' time-input--hidden' : ''}`}
+          value={depTime}
+          onChange={(e) => { setIsNow(false); setDepTime(e.target.value); }}
+          aria-label="Departure time"
+        />
+        {!isNow && (
+          <button
+            type="button"
+            className="time-pill"
+            onClick={() => { setIsNow(true); setDepTime(toLocalDatetimeStr(new Date())); }}
+            aria-label="Reset to now"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      <button type="submit" className="search-btn" disabled={!origin || !destination}>
+        Search routes
       </button>
+
+      {/* Recent searches */}
+      {recent.length > 0 && (
+        <div className="recent-section">
+          <p className="recent-heading">Recent</p>
+          <ul className="recent-list">
+            {recent.map((r, i) => (
+              <li key={i}>
+                <button type="button" className="recent-item" onClick={() => applyRecent(r)}>
+                  <span className="recent-icon">🕐</span>
+                  <span className="recent-text">{r.origin?.name} → {r.destination?.name}</span>
+                  <span className="recent-arrow">›</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </form>
   );
 }
