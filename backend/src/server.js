@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { journeysRouter } from './api/journeys.js';
 import { placesRouter }   from './api/places.js';
 import { ondcRouter }     from './ondc/router.js';
+import { siteVerificationHandler } from './ondc/onboard.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendDist = path.resolve(__dirname, '../../frontend/dist');
@@ -18,6 +19,8 @@ app.use(express.json({
 
 app.use('/api', journeysRouter);
 app.use('/api', placesRouter);
+// Registry verifies domain ownership by fetching this at the root path (no /ondc prefix)
+app.get('/ondc-site-verification.html', siteVerificationHandler);
 app.use('/ondc', ondcRouter);
 
 app.get('/api/health', (req, res) => {
