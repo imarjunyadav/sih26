@@ -68,7 +68,7 @@ function getOrCreateChannel(txnId) {
 }
 
 /** Thin wrapper so callbacks.js can call eventBus.emit(txnId, data) */
-const eventBus = {
+export const eventBus = {
   emit(txnId, data) {
     const ch = sseChannels.get(txnId);
     if (ch) ch.emit('update', data);

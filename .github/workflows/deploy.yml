@@ -53,8 +53,8 @@ jobs:
           # with base64 '=' padding and URL ':' characters inside a quoted string.
           # --update-env-vars adds/updates only these vars; existing Cloud Run
           # env vars (Google Maps, RailRadar, etc.) are left untouched.
-          ENV_VARS="ONDC_SUBSCRIBER_ID=citylink-122591058801.asia-south1.run.app"
-          ENV_VARS="${ENV_VARS},ONDC_SUBSCRIBER_URL=https://citylink-122591058801.asia-south1.run.app"
+          ENV_VARS="ONDC_SUBSCRIBER_ID=mobility.taqneeki.in"
+          ENV_VARS="${ENV_VARS},ONDC_SUBSCRIBER_URL=https://mobility.taqneeki.in"
           ENV_VARS="${ENV_VARS},ONDC_UNIQUE_KEY_ID=${ONDC_UNIQUE_KEY_ID}"
           ENV_VARS="${ENV_VARS},ONDC_SIGNING_PUBLIC_KEY=${ONDC_SIGNING_PUBLIC_KEY}"
           ENV_VARS="${ENV_VARS},ONDC_ENCRYPTION_PUBLIC_KEY=${ONDC_ENCRYPTION_PUBLIC_KEY}"

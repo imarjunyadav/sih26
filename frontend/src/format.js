@@ -30,14 +30,15 @@ export function leavesIn(isoString) {
 
 export function modeLabel(mode) {
   const map = {
-    WALK: 'Walk',
-    LOCAL_TRAIN: 'Local',
-    METRO: 'Metro',
-    BUS: 'Bus',
-    FERRY: 'Ferry',
-    TAXI: 'Taxi',
-    AUTO: 'Auto',
-    BIKE: 'Bike',
+    WALK:        'Walk',
+    LOCAL_TRAIN: 'Local Train',
+    METRO:       'Metro',
+    BUS:         'Bus',
+    CAR:         'Drive',
+    BIKE:        'Cycle',
+    FERRY:       'Ferry',
+    TAXI:        'Taxi',
+    AUTO:        'Auto',
   };
   return map[mode] ?? mode;
 }
